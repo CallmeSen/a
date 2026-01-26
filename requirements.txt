@@ -1,0 +1,17 @@
+# Multimodal Sentiment Analysis with ViT + InternVL3
+
+## Core Dependencies
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.40.0
+accelerate>=0.25.0
+pillow>=10.0.0
+einops>=0.7.0
+timm>=0.9.0
+sentencepiece>=0.1.99
+
+## Web Interface
+gradio>=4.0.0
+
+## InternVL3 specific
+flash-attn>=2.5.0
