@@ -181,3 +181,5 @@ cython_debug/
 .cursorindexingignore
 /datasets
 /.vscode
+/content
+/output_model
