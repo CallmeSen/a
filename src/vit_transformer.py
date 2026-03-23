@@ -1,0 +1,38 @@
+import torch
+import torch.nn as nn
+from transformers import AutoModel
+
+from .config import device, COMPUTE_DTYPE, VISION_MODEL_NAME, IMAGE_SIZE
+
+
+class VisionEncoder(nn.Module):
+    def __init__(
+        self,
+        model_name: str = VISION_MODEL_NAME,
+        run_device: str = device,
+        torch_dtype: torch.dtype = COMPUTE_DTYPE,
+    ):
+        super().__init__()
+        self.device = run_device
+        self.torch_dtype = torch.float32
+
+        print(f"Loading Swin Transformer V2: {model_name} (torch_dtype={self.torch_dtype})")
+        self.model = AutoModel.from_pretrained(model_name, torch_dtype=torch.float32).to(run_device)
+
+        for param in self.model.parameters():
+            param.requires_grad = False
+        self.model.eval()
+
+        self.hidden_size = self.model.config.hidden_size
+        with torch.no_grad():
+            dummy = torch.zeros(1, 3, IMAGE_SIZE, IMAGE_SIZE, dtype=torch.float32, device=run_device)
+            dummy_out = self.model(pixel_values=dummy).last_hidden_state
+            self.num_patches = dummy_out.shape[1]
+
+        print(f"Loaded: hidden_size={self.hidden_size}, num_patches={self.num_patches}")
+
+    @torch.no_grad()
+    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        pixel_values = pixel_values.to(self.device, dtype=self.torch_dtype)
+        outputs = self.model(pixel_values=pixel_values)
+        return outputs.last_hidden_state
