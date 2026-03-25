@@ -2,12 +2,40 @@
 
 from .vit_transformer import VisionEncoder
 from .projector_layer import MLPProjector
+from .perceiver_resampler import PerceiverResampler
+from .internlm_wrapper import InternLMWrapper
 from .multimodal_sentiment_model import MultimodalSentimentModel
-from .language_model import build_tokenizer_and_llm
+from .language_model import build_tokenizer_and_llm, build_tokenizer_only
+from .data import (
+    SentimentDataset,
+    make_collate_fn,
+    load_all_splits,
+    build_transform,
+    build_train_transform,
+)
+from .training import LazyLambdaScheduler, train_epoch, validate, setup_optimizer
+from .inference import predict_aspect_sentiment
 
 __all__ = [
-	"VisionEncoder",
-	"MLPProjector",
-	"MultimodalSentimentModel",
-	"build_tokenizer_and_llm",
+    # Core model components
+    "VisionEncoder",
+    "MLPProjector",
+    "PerceiverResampler",
+    "InternLMWrapper",
+    "MultimodalSentimentModel",
+    "build_tokenizer_and_llm",
+    "build_tokenizer_only",
+    # Data
+    "SentimentDataset",
+    "make_collate_fn",
+    "load_all_splits",
+    "build_transform",
+    "build_train_transform",
+    # Training
+    "LazyLambdaScheduler",
+    "train_epoch",
+    "validate",
+    "setup_optimizer",
+    # Inference
+    "predict_aspect_sentiment",
 ]

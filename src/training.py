@@ -1,12 +1,12 @@
 import math
-from typing import List, Tuple
+from typing import List
 
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 from sklearn.metrics import f1_score
 
-from .config import COMPUTE_DTYPE, LAMBDA_ACD, LAMBDA_ASC
+from .config import COMPUTE_DTYPE, NUM_CLASSES
 
 
 class LazyLambdaScheduler:
@@ -43,49 +43,36 @@ class LazyLambdaScheduler:
             return
         self._apply(self.last_epoch + 1)
 
+    def get_last_lr(self):
+        return list(self._last_lr)
 
-def setup_optimizer(sentiment_model, learning_rate, lora_lr, weight_decay):
-    head_named_params = []
-    lora_named_params = []
-    for name, param in sentiment_model.named_parameters():
-        if not param.requires_grad:
-            continue
-        if "lora_" in name:
-            lora_named_params.append((name, param))
-        else:
-            head_named_params.append((name, param))
 
-    head_params = [param for _, param in head_named_params]
-    lora_params = [param for _, param in lora_named_params]
-
+def setup_optimizer(sentiment_model, learning_rate, weight_decay):
+    trainable_params = [
+        param for _, param in sentiment_model.named_parameters()
+        if param.requires_grad
+    ]
     optimizer = torch.optim.AdamW(
-        [{"params": head_params, "lr": learning_rate}, {"params": lora_params, "lr": lora_lr}],
+        [{"params": trainable_params, "lr": learning_rate}],
         weight_decay=weight_decay,
+        eps=1e-5,
     )
-    return optimizer, head_params, lora_params
+    return optimizer, trainable_params
 
 
 def compute_loss(outputs, labels, run_device):
-    acd_logits = outputs["acd_logits"]
-    asc_logits = outputs["asc_logits"]
-
-    if not torch.isfinite(acd_logits).all() or not torch.isfinite(asc_logits).all():
+    """Single-head 4-class CrossEntropy loss."""
+    logits = outputs["logits"]
+    if not torch.isfinite(logits).all():
         nan_loss = torch.tensor(float("nan"), device=run_device, dtype=torch.float32)
-        return nan_loss, nan_loss, nan_loss
+        return nan_loss, nan_loss
 
-    acd_labels = (labels > 0).float()
-    l_acd = F.binary_cross_entropy_with_logits(acd_logits.float(), acd_labels, reduction="mean")
-
-    relevant_mask = labels > 0
-    if relevant_mask.any():
-        asc_logits_flat = asc_logits[relevant_mask]
-        asc_labels_flat = (labels[relevant_mask] - 1).long()
-        l_asc = F.cross_entropy(asc_logits_flat.float(), asc_labels_flat, reduction="mean")
-    else:
-        l_asc = torch.tensor(0.0, device=run_device, dtype=torch.float32)
-
-    total_loss = LAMBDA_ACD * l_acd + LAMBDA_ASC * l_asc
-    return total_loss, l_acd.detach(), l_asc.detach()
+    loss = F.cross_entropy(
+        logits.float().reshape(-1, NUM_CLASSES),
+        labels.reshape(-1).long(),
+        reduction="mean",
+    )
+    return loss, loss.detach()
 
 
 def _sanitize_grads(model):
@@ -101,79 +88,149 @@ def _sanitize_grads(model):
     return count
 
 
-def _optimizer_step(model, optimizer, scheduler, head_params: List[torch.nn.Parameter], lora_params: List[torch.nn.Parameter]):
-    _sanitize_grads(model)
-    if head_params:
-        torch.nn.utils.clip_grad_norm_(head_params, max_norm=1.0)
-    if lora_params:
-        torch.nn.utils.clip_grad_norm_(lora_params, max_norm=0.3)
+def _optimizer_step(
+    model, optimizer, scheduler, trainable_params: List[torch.nn.Parameter]
+):
+    n_fixed = _sanitize_grads(model)
+
+    if n_fixed > 0:
+        for group in optimizer.param_groups:
+            for p in group["params"]:
+                state = optimizer.state.get(p, {})
+                if "exp_avg" in state:
+                    state["exp_avg"].zero_()
+                if "exp_avg_sq" in state:
+                    state["exp_avg_sq"].zero_()
+        optimizer.zero_grad(set_to_none=True)
+        return True
+
+    if trainable_params:
+        torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
     optimizer.step()
     scheduler.step()
     optimizer.zero_grad(set_to_none=True)
+    return False
 
 
-def train_epoch(model, dataloader, optimizer, scheduler, run_device, head_params, lora_params, gradient_accumulation_steps=1, tokenizer=None):
+def train_epoch(
+    model,
+    dataloader,
+    optimizer,
+    scheduler,
+    run_device,
+    trainable_params,
+    gradient_accumulation_steps=1,
+    tokenizer=None,
+):
     model.train()
     total_loss = 0.0
-    total_acd_loss = 0.0
-    total_asc_loss = 0.0
+    total_cls_loss = 0.0
     num_batches = 0
-    nan_batches = 0
+    skipped_batches = 0
+    sanitized_steps = 0
+    optimizer_steps = 0
+    valid_micro_steps = 0
 
     optimizer.zero_grad(set_to_none=True)
     scheduler.start()
     progress_bar = tqdm(dataloader, desc="Training")
 
-    valid_micro_steps = 0
     for step, batch in enumerate(progress_bar):
         pixel_values = batch["pixel_values"].to(run_device, dtype=COMPUTE_DTYPE)
-        image_counts = batch["image_counts"].to(run_device)
         input_ids = batch["input_ids"].to(run_device)
-        attention_mask = batch["attention_mask"].to(run_device)
         labels = batch["labels"].to(run_device)
 
-        outputs = model(pixel_values, input_ids, attention_mask, image_counts)
-        loss, l_acd, l_asc = compute_loss(outputs, labels, run_device)
+        attention_mask = batch.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(run_device)
+
+        image_counts = batch.get("image_counts")
+        if image_counts is not None:
+            image_counts = image_counts.to(run_device)
+
+        try:
+            outputs = model(
+                pixel_values,
+                input_ids,
+                attention_mask=attention_mask,
+                image_counts=image_counts,
+            )
+        except RuntimeError as e:
+            if "NaN" in str(e) or "corrupted" in str(e):
+                skipped_batches += 1
+                optimizer.zero_grad(set_to_none=True)
+                continue
+            raise
+
+        if outputs.get("bad_batch", False):
+            skipped_batches += 1
+            optimizer.zero_grad(set_to_none=True)
+            continue
+
+        logits = outputs["logits"]
+        if not torch.isfinite(logits).all():
+            skipped_batches += 1
+            optimizer.zero_grad(set_to_none=True)
+            continue
+
+        loss, l_cls = compute_loss(outputs, labels, run_device)
+        if not torch.isfinite(loss):
+            skipped_batches += 1
+            optimizer.zero_grad(set_to_none=True)
+            continue
 
         if step == 0 and tokenizer is not None:
-            print(f"[DIAG] tokenizer.padding_side={tokenizer.padding_side}, pad_token_id={tokenizer.pad_token_id}")
-
-        if not torch.isfinite(loss):
-            nan_batches += 1
-            continue
+            print(
+                f"[DIAG] tokenizer.padding_side={tokenizer.padding_side}, "
+                f"pad_token_id={tokenizer.pad_token_id}"
+            )
 
         scaled_loss = loss / gradient_accumulation_steps
         scaled_loss.backward()
         valid_micro_steps += 1
 
         total_loss += loss.item()
-        total_acd_loss += l_acd.item()
-        total_asc_loss += l_asc.item()
+        total_cls_loss += l_cls.item()
         num_batches += 1
 
         if valid_micro_steps % gradient_accumulation_steps == 0:
-            _optimizer_step(model, optimizer, scheduler, head_params, lora_params)
+            skipped_opt = _optimizer_step(
+                model, optimizer, scheduler, trainable_params
+            )
+            optimizer_steps += 1
+            if skipped_opt:
+                sanitized_steps += 1
+                print(
+                    f"\n[WARN] Optimizer step {optimizer_steps} skipped "
+                    f"(NaN gradients detected)"
+                )
 
-        progress_bar.set_postfix({"loss": f"{loss.item():.4f}", "acd": f"{l_acd.item():.4f}", "asc": f"{l_asc.item():.4f}"})
+        progress_bar.set_postfix(
+            {"loss": f"{loss.item():.4f}", "cls": f"{l_cls.item():.4f}"}
+        )
 
-    if valid_micro_steps % gradient_accumulation_steps != 0:
-        _optimizer_step(model, optimizer, scheduler, head_params, lora_params)
+    if valid_micro_steps % gradient_accumulation_steps != 0 and valid_micro_steps > 0:
+        _optimizer_step(model, optimizer, scheduler, trainable_params)
 
-    if nan_batches > 0:
-        print(f"[WARN] {nan_batches} batches skipped (non-finite loss)")
+    if skipped_batches > 0:
+        print(f"[WARN] {skipped_batches} batches skipped (bad batch or non-finite outputs)")
+    if sanitized_steps > 0:
+        print(
+            f"[INFO] {sanitized_steps}/{optimizer_steps} optimizer steps had "
+            f"NaN grads (sanitized to 0)"
+        )
 
     if num_batches == 0:
-        return float("nan"), float("nan"), float("nan")
+        return float("nan"), float("nan")
 
-    return total_loss / num_batches, total_acd_loss / num_batches, total_asc_loss / num_batches
+    return total_loss / num_batches, total_cls_loss / num_batches
 
 
 @torch.no_grad()
 def validate(model, dataloader, run_device):
     model.eval()
     total_loss = 0.0
-    total_acd_loss = 0.0
-    total_asc_loss = 0.0
+    total_cls_loss = 0.0
     num_batches = 0
 
     all_true_labels = []
@@ -181,37 +238,50 @@ def validate(model, dataloader, run_device):
 
     for batch in tqdm(dataloader, desc="Validating"):
         pixel_values = batch["pixel_values"].to(run_device, dtype=COMPUTE_DTYPE)
-        image_counts = batch["image_counts"].to(run_device)
         input_ids = batch["input_ids"].to(run_device)
-        attention_mask = batch["attention_mask"].to(run_device)
         labels = batch["labels"].to(run_device)
 
-        outputs = model(pixel_values, input_ids, attention_mask, image_counts)
-        loss, l_acd, l_asc = compute_loss(outputs, labels, run_device)
+        attention_mask = batch.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(run_device)
+
+        image_counts = batch.get("image_counts")
+        if image_counts is not None:
+            image_counts = image_counts.to(run_device)
+
+        try:
+            outputs = model(
+                pixel_values,
+                input_ids,
+                attention_mask=attention_mask,
+                image_counts=image_counts,
+            )
+        except RuntimeError:
+            continue
+
+        if outputs.get("bad_batch", False):
+            continue
+
+        loss, l_cls = compute_loss(outputs, labels, run_device)
         if not torch.isfinite(loss):
             continue
 
         total_loss += loss.item()
-        total_acd_loss += l_acd.item()
-        total_asc_loss += l_asc.item()
+        total_cls_loss += l_cls.item()
         num_batches += 1
 
-        acd_logits = outputs["acd_logits"]
-        asc_logits = outputs["asc_logits"]
-        pred_presence = (acd_logits > 0).long()
-        pred_sentiment = asc_logits.argmax(dim=-1) + 1
-        pred_combined = pred_presence * pred_sentiment
+        logits = outputs["logits"]
+        pred_labels = logits.argmax(dim=-1)
 
         all_true_labels.append(labels.cpu())
-        all_pred_labels.append(pred_combined.cpu())
+        all_pred_labels.append(pred_labels.cpu())
 
     if len(all_true_labels) == 0:
         print("[WARN] No valid validation batches")
-        return float("nan"), float("nan"), float("nan"), 0.0, None, None
+        return float("nan"), float("nan"), 0.0, None, None
 
     avg_loss = total_loss / num_batches
-    avg_acd = total_acd_loss / num_batches
-    avg_asc = total_asc_loss / num_batches
+    avg_cls = total_cls_loss / num_batches
 
     all_true = torch.cat(all_true_labels, dim=0)
     all_pred = torch.cat(all_pred_labels, dim=0)
@@ -220,4 +290,4 @@ def validate(model, dataloader, run_device):
     pred_flat = all_pred.numpy().reshape(-1)
     macro_f1 = f1_score(true_flat, pred_flat, average="macro", zero_division=0)
 
-    return avg_loss, avg_acd, avg_asc, macro_f1, all_pred, all_true
+    return avg_loss, avg_cls, macro_f1, all_pred, all_true
