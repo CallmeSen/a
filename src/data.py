@@ -189,11 +189,36 @@ def _build_aspect_text(comment: str, aspect_name: str) -> str:
 
 def make_collate_fn(tokenizer_ref):
     def collate_fn(batch):
-        image_counts = [item["num_images"] for item in batch]
+        # Expand each sample into 6 individual samples (1 per aspect).
+        # Each raw sample contains text+images+all aspect labels.
+        # After expansion: N raw samples → N × 6 samples (1 aspect each).
+        expanded_items = []
+        for item in batch:
+            pixel_values = item["pixel_values"]   # [M, C, H, W]
+            num_images = item["num_images"]
+            labels = item["labels"]               # [6]
+            comment = item["comment"]
+            image_paths = item["image_paths"]
+
+            for aid in range(labels.size(0)):
+                aspect_name = ID2ASPECT[aid]
+                aspect_texts = _build_aspect_text(comment, aspect_name)
+                expanded_items.append({
+                    "pixel_values": pixel_values,
+                    "num_images": num_images,
+                    "label": labels[aid].item(),   # scalar label for this aspect
+                    "aspect_text": aspect_texts,
+                    "comment": comment,
+                    "image_paths": image_paths,
+                })
+
+        # Determine max images across all expanded items
+        image_counts = [item["num_images"] for item in expanded_items]
         max_imgs = max(image_counts)
 
+        # Pad pixel_values to [max_imgs, C, H, W]
         padded_pixels = []
-        for item in batch:
+        for item in expanded_items:
             pvs = item["pixel_values"]
             n = pvs.shape[0]
             if n < max_imgs:
@@ -201,32 +226,11 @@ def make_collate_fn(tokenizer_ref):
                 padded_pixels.append(torch.cat([pvs, pad], dim=0))
             else:
                 padded_pixels.append(pvs)
-
-        pixel_values = torch.stack(padded_pixels)
-        image_counts_tensor = torch.tensor(image_counts)
-
-        # Pick ONE aspect per sample (first labelled one, fallback to index 0)
-        aspect_texts = []
-        aspect_labels = []
-        multi_labels = []
-
-        for item in batch:
-            labels = item["labels"]
-            multi_labels.append(labels)
-
-            # Find first aspect with a non-zero (non-None) label
-            chosen_aid = 0
-            for aid in range(labels.size(0)):
-                if labels[aid].item() != 0:
-                    chosen_aid = aid
-                    break
-
-            aspect_name = ID2ASPECT[chosen_aid]
-            comment = item["comment"]
-            aspect_texts.append(_build_aspect_text(comment, aspect_name))
-            aspect_labels.append(labels[chosen_aid].item())
+        pixel_values_batch = torch.stack(padded_pixels)  # [B, max_imgs, C, H, W]
+        image_counts_tensor = torch.tensor(image_counts, dtype=torch.long)
 
         # Tokenize aspect-prompted texts
+        aspect_texts = [item["aspect_text"] for item in expanded_items]
         text_inputs = tokenizer_ref(
             aspect_texts,
             padding=True,
@@ -235,21 +239,16 @@ def make_collate_fn(tokenizer_ref):
             return_tensors="pt",
         )
 
-        # Labels: 1 aspect per sample
+        # Labels: 1 aspect per sample → [B]
+        aspect_labels = [item["label"] for item in expanded_items]
         aspect_labels_tensor = torch.tensor(aspect_labels, dtype=torch.long)
-        # Multi-label tensor still kept for reference
-        multi_labels_tensor = torch.stack(multi_labels)
 
         return {
-            "pixel_values": pixel_values,
+            "pixel_values": pixel_values_batch,
             "image_counts": image_counts_tensor,
             "input_ids": text_inputs.input_ids,
             "attention_mask": text_inputs.attention_mask,
-            "labels": aspect_labels_tensor,       # [B] — 1 label per sample
-            "multi_labels": multi_labels_tensor, # [B, 6] — full 6-aspect labels (for reference)
-            "aspect_texts": aspect_texts,
-            "comments": [item["comment"] for item in batch],
-            "image_paths": [item["image_paths"] for item in batch],
+            "labels": aspect_labels_tensor,          # [B]
         }
 
     return collate_fn

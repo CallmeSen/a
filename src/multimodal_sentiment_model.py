@@ -78,7 +78,7 @@ class MultimodalSentimentModel(nn.Module):
 
     def _bad_batch_output(self, batch_size: int, device: torch.device) -> dict:
         return {
-            "logits": torch.zeros(batch_size, 1, self.num_classes, device=device, dtype=torch.float32),
+            "logits": torch.zeros(batch_size, 1, 1, self.num_classes, device=device, dtype=torch.float32),
             "bad_batch": True,
         }
 
@@ -230,7 +230,9 @@ class MultimodalSentimentModel(nn.Module):
                 s = start_pos[0].item()
                 e = end_pos[0].item()
                 span_h = final_hidden[0, s:e+1]               # [span_len, D]
-                h_a = span_h.mean(dim=0, keepdim=True)        # [1, D] — diagram: mean pooling
+                h_a = span_h.mean(dim=0, keepdim=True)        # [1, D] (or [1,1,D] if span_len==1)
+                if h_a.dim() == 3:
+                    h_a = h_a.squeeze(1)                      # [1,1,D] -> [1,D]
             else:
                 # Fallback: use first token
                 h_a = final_hidden[:, 0, :]                   # [1, D]
@@ -240,15 +242,17 @@ class MultimodalSentimentModel(nn.Module):
                 break
 
             # 6) Dot-product attention pooling (diagram: alpha_a = softmax(h_a H^T / sqrt(D)))
+            h_a_flat = h_a.squeeze(0)                        # [D] for clean matmul
+            final_h_T = final_hidden.transpose(1, 2)          # [1, D, L]
             scores = torch.matmul(
-                h_a, final_hidden.transpose(1, 2)            # [1, L]
-            ) / (self.llm_hidden_size ** 0.5)
+                h_a_flat.unsqueeze(0), final_h_T             # [1, D] x [1, D, L] -> [1, L]
+            ).squeeze(1) / (self.llm_hidden_size ** 0.5)      # [1, L]
 
             if sample_attn_mask is not None:
                 scores = scores.masked_fill(~sample_attn_mask.bool(), float("-inf"))
 
-            attn_weights = F.softmax(scores, dim=-1)          # [1, L]
-            z_a = torch.matmul(attn_weights, final_hidden)     # [1, D]
+            attn_weights = F.softmax(scores, dim=-1).unsqueeze(1)   # [1, 1, L]
+            z_a = torch.matmul(attn_weights, final_hidden).squeeze(1)  # [1, D]
 
             if self._has_nonfinite(z_a, "z_a"):
                 any_bad = True
@@ -263,7 +267,7 @@ class MultimodalSentimentModel(nn.Module):
 
         # Concat: [B, 4]
         logits = torch.cat(logits_list, dim=0)
-        logits = logits.unsqueeze(1)                          # [B, 1, 4] for loss compat
+        logits = logits.unsqueeze(1).unsqueeze(1)   # [B, 1, 1, 4] for loss compat
 
         return {"logits": logits, "bad_batch": False}
 

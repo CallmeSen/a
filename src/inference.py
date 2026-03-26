@@ -44,12 +44,12 @@ def _format_result(logits: torch.Tensor, single_aspect: bool = False) -> dict:
     pred_classes = pred_classes.cpu()
 
     if single_aspect:
-        pred_class = pred_classes[0, 0].item()
+        pred_class = pred_classes[0].item()
         pred_label = ID2CLASS[pred_class]
         return {
             "predicted_class": pred_class,
             "predicted_label": pred_label,
-            "probabilities": {ID2CLASS[c]: probs[0, 0, c].item() for c in range(NUM_CLASSES)},
+            "probabilities": {ID2CLASS[c]: probs[0, c].item() for c in range(NUM_CLASSES)},
         }
 
     # Multi-aspect legacy path (kept for reference)
@@ -124,8 +124,13 @@ def predict_aspect_sentiment(
     if outputs.get("bad_batch", False):
         raise RuntimeError("Model returned bad_batch during inference")
 
-    # logits shape: [1, 1, 4] → squeeze to [1, 4]
-    logits = outputs["logits"].squeeze(0)  # [1, 4]
+    # logits shape: [1, 1, 1, 4] → squeeze to [1, 4]
+    if outputs["logits"].dim() == 4:
+        logits = outputs["logits"].squeeze(1).squeeze(1)
+    elif outputs["logits"].dim() == 3:
+        logits = outputs["logits"].squeeze(1)
+    else:
+        logits = outputs["logits"]
     result = _format_result(logits, single_aspect=True)
 
     if return_logits:

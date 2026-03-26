@@ -63,11 +63,11 @@ def setup_optimizer(sentiment_model, learning_rate, weight_decay):
 def compute_loss(outputs, labels, run_device):
     """Single-head 4-class CrossEntropy loss.
 
-    Model output shape: logits [B, 1, 1, 4] (aspect_dim=1, single_class).
-    We squeeze the leading dimensions so cross_entropy receives [B, 4].
+    Model output shape: logits [B, 1, 1, 4].
+    Squeeze leading singleton dims so cross_entropy receives [B, 4].
     """
     logits = outputs["logits"]
-    # Handle [B, 1, 1, 4] -> squeeze leading singleton dims
+    # Handle [B, 1, 1, 4] -> squeeze to [B, 4]
     while logits.dim() > 2:
         logits = logits.squeeze(-2)  # remove inner dims until [B, 4]
     loss = F.cross_entropy(
@@ -278,7 +278,12 @@ def validate(model, dataloader, run_device):
         num_batches += 1
 
         logits = outputs["logits"]
-        pred_labels = logits.argmax(dim=-1)
+        # Handle [B, 1, 1, 4] -> [B, 4]
+        if logits.dim() == 4:
+            logits = logits.squeeze(1).squeeze(1)
+        elif logits.dim() == 3:
+            logits = logits.squeeze(1)
+        pred_labels = logits.argmax(dim=-1)  # [B]
 
         all_true_labels.append(labels.cpu())
         all_pred_labels.append(pred_labels.cpu())
