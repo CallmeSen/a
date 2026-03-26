@@ -26,7 +26,7 @@ TRAINING_INFO_PATH = os.path.join(OUTPUT_DIR, "training_info.pt")
 BATCH_SIZE = 8
 NUM_WORKERS = 0
 
-LEARNING_RATE = 2e-5
+LEARNING_RATE = 3e-5
 LORA_LR = 1e-6
 WEIGHT_DECAY = 0.01
 NUM_EPOCHS = 10
@@ -38,6 +38,8 @@ EARLY_STOPPING_MIN_DELTA = 1e-4
 LAMBDA_ACD = 1.0
 LAMBDA_ASC = 1.0
 
+ASPECT_START = "<ASP>"
+ASPECT_END = "</ASP>"
 ASPECT_LABELS = ["Facilities", "Public_area", "Location", "Food", "Room", "Service"]
 ASPECT2ID = {label: idx for idx, label in enumerate(ASPECT_LABELS)}
 ID2ASPECT = {idx: label for idx, label in enumerate(ASPECT_LABELS)}
@@ -51,9 +53,20 @@ NUM_CLASSES = len(CLASS_LABELS)
 _SENTIMENT_TO_CLASS = {"Negative": 1, "Neutral": 2, "Positive": 3}
 
 
+# Dynamic: populated after tokenizer.add_special_tokens() in language_model.py
+ASPECT_START_ID = None
+ASPECT_END_ID = None
+
+def _set_special_token_ids(start_id: int, end_id: int):
+    global ASPECT_START_ID, ASPECT_END_ID
+    ASPECT_START_ID = start_id
+    ASPECT_END_ID = end_id
+
 def setup_runtime() -> None:
     warnings.filterwarnings("ignore", message=".*AttentionMaskConverter.*")
     logging.getLogger("transformers").setLevel(logging.ERROR)
+    if torch.cuda.is_available():
+        torch.backends.cudnn.enabled = False
 
 
 def print_runtime_summary() -> None:

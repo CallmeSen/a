@@ -1,16 +1,26 @@
 #!/usr/bin/env python3
-"""Standalone training and evaluation script for Multimodal Sentiment Analysis."""
+"""Standalone training script for Multimodal Sentiment Analysis.
 
-import math
+Compatible with both python3 and torchrun:
+    python3 multimodal_sentiment.py
+    torchrun multimodal_sentiment.py
+"""
+
 import os
-import random
+import math
 
+# torchrun sets these env vars automatically; plain python3 leaves them unset
+_LOCAL_RANK = int(os.environ.get("LOCAL_RANK", 0))
+_IS_MAIN_RANK = (_LOCAL_RANK == 0)
+
+# NOTE: CUBLAS_WORKSPACE_CONFIG causes NaN in InternLM2 rotary embedding
+# on NVIDIA L40S GPU when using expand() buffers. Must unset BEFORE import torch.
+os.environ.pop("CUBLAS_WORKSPACE_CONFIG", None)
+
+import random
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-
-# Suppress CuBLAS deterministic warning
-os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 # ============================================================
 # Deterministic seeding for reproducibility
@@ -22,9 +32,12 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
 
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-torch.use_deterministic_algorithms(True, warn_only=True)
+torch.backends.cudnn.deterministic = False
+torch.backends.cudnn.benchmark = True
+torch.backends.cuda.matmul.allow_tf32 = False
+# NOTE: torch.use_deterministic_algorithms removed because InternLM2 uses
+# SDPA/Flash Attention which is non-deterministic by design.
+# Forcing deterministic mode causes NaN with large hidden_size (2048).
 # ============================================================
 
 from safetensors.torch import save_file, load_file
@@ -97,7 +110,7 @@ def main():
 
     # 2) Build tokenizer + LLM base
     print(f"\nLoading LLM: {LLM_MODEL_NAME}")
-    tokenizer, _, llm_base, num_layers = build_tokenizer_and_llm()
+    tokenizer, llm_for_clm, llm_base, num_layers = build_tokenizer_and_llm()
     print(
         f"Tokenizer: padding_side={tokenizer.padding_side}, "
         f"pad_token={tokenizer.pad_token} (id={tokenizer.pad_token_id})"
@@ -125,7 +138,7 @@ def main():
     # 5) InternLM wrapper
     use_adapter_layers = list(range(num_layers - 4, num_layers))  # last 4 adapters
     internlm_wrapper = InternLMWrapper(
-        internlm_base_model=llm_base,
+        internlm_for_casual_lm=llm_for_clm,
         num_layers=num_layers,
         hidden_size=LLM_HIDDEN_SIZE,
         num_visual_tokens=16 * MAX_IMAGES,
@@ -220,17 +233,26 @@ def main():
     for epoch in range(NUM_EPOCHS):
         print(f"\nEpoch {epoch + 1}/{NUM_EPOCHS}")
 
-        train_loss, train_cls = train_epoch(
-            sentiment_model,
-            train_loader_local,
-            optimizer,
-            scheduler,
-            device,
-            trainable_params,
-            gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
-            tokenizer=tokenizer,
-        )
-        train_losses.append(train_loss)
+        try:
+            train_loss, train_cls = train_epoch(
+                sentiment_model,
+                train_loader_local,
+                optimizer,
+                scheduler,
+                device,
+                trainable_params,
+                gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
+                tokenizer=tokenizer,
+            )
+            train_losses.append(train_loss)
+        except RuntimeError as e:
+            if "NaN" in str(e) or "FATAL" in str(e):
+                print(f"\n{'='*60}")
+                print(f"[FATAL] Training stopped due to NaN loss.")
+                print(f"Error: {e}")
+                print(f"{'='*60}")
+                raise SystemExit(1) from e
+            raise
 
         val_loss, val_cls, macro_f1, val_preds, _ = validate(
             sentiment_model,
@@ -282,7 +304,7 @@ def main():
             print("[EARLY STOP] triggered")
             break
 
-    # 11) Load best and evaluate on test set
+        # 11) Load best and evaluate on test set
     if os.path.exists(BEST_MODEL_PATH):
         trainable_state = load_file(BEST_MODEL_PATH)
         trainable_state = {k: v.to(device) for k, v in trainable_state.items()}
@@ -308,25 +330,38 @@ def main():
         print(f"Macro F1:       {macro_f1:.4f}")
 
     # 12) Demo inference on first test sample
-    demo_test_dataset = test_dataset()
-    if len(demo_test_dataset.samples) > 0:
-        demo_sample = demo_test_dataset.samples[0]
+    demo_test = SentimentDataset(
+        dataset_splits["test"],
+        IMAGE_DIR,
+        ASPECT2ID,
+        transform=build_transform(IMAGE_SIZE),
+    )
+    if len(demo_test.samples) > 0:
+        demo_sample = demo_test.samples[0]
         demo_image_path = demo_sample["image_paths"][0]
         demo_comment = demo_sample["comment"]
         demo_true_labels = demo_sample["raw_labels"]
 
+        # Pick first labelled aspect for demo
+        demo_aspect_name = ASPECT_LABELS[0]
+        for aid, label in enumerate(demo_sample["parsed_labels"]):
+            demo_aspect_name = label[0]
+            break
+
         print(f"\n=== Demo Inference ===")
         print(f"Comment: {demo_comment}")
+        print(f"Aspect: {demo_aspect_name}")
         print(f"True labels: {demo_true_labels}")
 
         result = predict_aspect_sentiment(
             demo_image_path,
             demo_comment,
+            demo_aspect_name,
             sentiment_model,
             tokenizer,
         )
-        print(f"Predicted aspects: {result['detected_aspects']}")
-        print(f"Predicted sentiments: {result['aspect_sentiments']}")
+        print(f"Predicted class: {result['predicted_label']}")
+        print(f"Probabilities: {result['probabilities']}")
 
 
 def _build_train_loader(dataset_splits, tokenizer):
