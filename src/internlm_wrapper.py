@@ -173,28 +173,7 @@ class InternLMWrapper(nn.Module):
         Uses the full InternLM2ForCausalLM model forward path via input_embeds.
         Cross-attention adapters are injected via hooks at the correct position
         (between self-attn and FFN within each decoder layer).
-
-        Supports two input shapes:
-        - [B, L]          — standard single-aspect per sample
-        - [B, A, L]       — multi-aspect (A aspects per sample); A dimension is
-                            flattened into B for the InternLM forward pass and
-                            restored on the output so callers see consistent shapes.
         """
-        # Detect multi-aspect input [B, A, L] and flatten to [B*A, L]
-        orig_shape = text_input_ids.shape   # [B, L] or [B, A, L]
-        if text_input_ids.dim() == 3:
-            B, A, L = text_input_ids.shape
-            text_input_ids = text_input_ids.reshape(B * A, L)    # [B*A, L]
-            if attention_mask is not None:
-                attention_mask = attention_mask.reshape(B * A, L)
-            if visual_tokens is not None:
-                # Expand visual tokens: [B, N, D] -> [B*A, N, D]
-                visual_tokens = visual_tokens.unsqueeze(1).expand(B, A, *visual_tokens.shape[1:]).reshape(B * A, *visual_tokens.shape[1:])
-            if visual_mask is not None:
-                visual_mask = visual_mask.unsqueeze(1).expand(B, A, *visual_mask.shape[1:]).reshape(B * A, *visual_mask.shape[1:])
-        else:
-            A = None  # no multi-aspect dim
-
         self._visual_tokens = visual_tokens
         self._visual_mask = visual_mask
 
@@ -209,6 +188,7 @@ class InternLMWrapper(nn.Module):
             rotary = layer.attention.rotary_emb
             dim = rotary.dim
             base = rotary.base  # rope_theta
+            # Recompute in float32 on the target device
             new_inv = (1.0 / (
                 base ** (
                     torch.arange(0, dim, 2, dtype=torch.float32, device=target_device) / dim
@@ -230,9 +210,5 @@ class InternLMWrapper(nn.Module):
             self._unregister_hooks()
             self._visual_tokens = None
             self._visual_mask = None
-
-        # Restore original aspect dimension if multi-aspect input was detected
-        if A is not None:
-            last_hidden = last_hidden.view(B, A, -1, last_hidden.size(-1))  # [B, A, L, D]
 
         return last_hidden, outputs.hidden_states if output_hidden_states else None

@@ -15,7 +15,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .config import ASPECT_START_ID as _ASPECT_START_ID, ASPECT_END_ID as _ASPECT_END_ID
+from .config import (
+    ASPECT_START_ID,
+    ASPECT_END_ID,
+)
 
 
 class MultimodalSentimentModel(nn.Module):
@@ -39,16 +42,6 @@ class MultimodalSentimentModel(nn.Module):
         self.num_classes = num_classes
 
         self.llm_hidden_size = internlm_wrapper.hidden_size
-
-        # Resolve special token IDs at init time (tokenizer is already set up)
-        self._start_id = _ASPECT_START_ID
-        self._end_id = _ASPECT_END_ID
-        if self._start_id is None or self._end_id is None:
-            from .config import ASPECT_START, ASPECT_END
-            self._start_id = tokenizer.convert_tokens_to_ids(ASPECT_START)
-            self._end_id = tokenizer.convert_tokens_to_ids(ASPECT_END)
-            from .config import _set_special_token_ids
-            _set_special_token_ids(self._start_id, self._end_id)
 
         # The LLM backbone is kept frozen (requires_grad=False) because it produces
         # NaN during forward pass on this hardware — a known numerical instability in
@@ -85,7 +78,7 @@ class MultimodalSentimentModel(nn.Module):
 
     def _bad_batch_output(self, batch_size: int, device: torch.device) -> dict:
         return {
-            "logits": torch.zeros(batch_size, 6, self.num_classes, device=device, dtype=torch.float32),
+            "logits": torch.zeros(batch_size, 1, self.num_classes, device=device, dtype=torch.float32),
             "bad_batch": True,
         }
 
@@ -187,95 +180,90 @@ class MultimodalSentimentModel(nn.Module):
             return self._bad_batch_output(B, device)
 
         # 2) Locate <ASP> and </ASP> token positions in the batch
-        start_id = self._start_id
-        end_id = self._end_id
+        start_id = ASPECT_START_ID
+        end_id = ASPECT_END_ID
 
-        asp_start_mask = (input_ids == start_id)   # [B, 6, L] bool
-        asp_end_mask   = (input_ids == end_id)     # [B, 6, L] bool
+        # Handle case where special tokens not yet registered (e.g., inference before tokenizer init)
+        if start_id is None or end_id is None:
+            from .config import ASPECT_START, ASPECT_END
+            start_id = self.tokenizer.convert_tokens_to_ids(ASPECT_START)
+            end_id = self.tokenizer.convert_tokens_to_ids(ASPECT_END)
+
+        asp_start_mask = (input_ids == start_id)   # [B, L] bool
+        asp_end_mask   = (input_ids == end_id)     # [B, L] bool
 
         logits_list = []
         any_bad = False
 
-        # 3) Per-sample, per-aspect sequential processing
+        # 3) Per-sample sequential processing (diagram: per-aspect)
         for b in range(B):
-            for a in range(6):
-                # Select text for this sample + this aspect: [1, 1, L]
-                sample_input_ids = input_ids[b:b+1, a:a+1, :]
-                if attention_mask is not None:
-                    sample_attn_mask = attention_mask[b:b+1, a:a+1, :]  # [1, 1, L]
-                else:
-                    sample_attn_mask = None
-                # Visual tokens: shared across all aspects for this sample
-                sample_vis_tok  = visual_tokens[b:b+1]     # [1, N_vis, H]
-                sample_vis_mask = visual_mask[b:b+1]       # [1, N_vis]
+            # Extract single-sample tensors
+            sample_input_ids = input_ids[b:b+1]                # [1, L]
+            sample_attn_mask = attention_mask[b:b+1] if attention_mask is not None else None
+            sample_vis_tok   = visual_tokens[b:b+1]             # [1, N_vis, H]
+            sample_vis_mask  = visual_mask[b:b+1]              # [1, N_vis]
 
-                # Build position_ids for this sample
-                seq_len = sample_input_ids.size(-1)
-                sample_pos_ids = torch.arange(
-                    seq_len, device=device, dtype=torch.long
-                ).unsqueeze(0)                              # [1, L]
+            # Build position_ids for this sample
+            seq_len = sample_input_ids.size(1)
+            sample_pos_ids = torch.arange(
+                seq_len, device=device, dtype=torch.long
+            ).unsqueeze(0)                                      # [1, L]
 
-                # 4) InternLM forward
-                final_hidden, _ = self.internlm_wrapper(
-                    text_input_ids=sample_input_ids,
-                    text_position_ids=sample_pos_ids,
-                    attention_mask=sample_attn_mask,
-                    visual_tokens=sample_vis_tok,
-                    visual_mask=sample_vis_mask,
-                    output_hidden_states=False,
-                )
-                if self._has_nonfinite(final_hidden, "final_hidden"):
-                    any_bad = True
-                    break
-
-                # 5) Extract h_a: mean pooling over <ASP>...</ASP> span
-                # final_hidden is [1, 1, L, D] (batch + aspect dims)
-                # Squeeze both to get [L, D]
-                h_seq = final_hidden.squeeze(0).squeeze(0)        # [L, D]
-
-                start_pos = asp_start_mask[b, a].nonzero(as_tuple=True)[0]
-                end_pos   = asp_end_mask[b, a].nonzero(as_tuple=True)[0]
-
-                if len(start_pos) > 0 and len(end_pos) > 0:
-                    s = start_pos[0].item()
-                    e = end_pos[0].item()
-                    span_h = h_seq[s:e+1]                        # [span_len, D]
-                    h_a = span_h.mean(dim=0, keepdim=True)       # [1, D]
-                else:
-                    h_a = h_seq[0, :].unsqueeze(0)                # [1, D]
-
-                if self._has_nonfinite(h_a, "h_a"):
-                    any_bad = True
-                    break
-
-                # 6) Dot-product attention pooling
-                scores = torch.matmul(
-                    h_a, h_seq.transpose(0, 1)                # [1, L]
-                ) / (self.llm_hidden_size ** 0.5)
-
-                if sample_attn_mask is not None:
-                    scores = scores.masked_fill(~sample_attn_mask.bool(), float("-inf"))
-
-                attn_weights = F.softmax(scores, dim=-1)        # [1, L]
-                z_a = torch.matmul(attn_weights, h_seq.unsqueeze(0))  # [1, D]
-
-                if self._has_nonfinite(z_a, "z_a"):
-                    any_bad = True
-                    break
-
-                # 7) Classifier
-                logit = self.classifier_head(z_a)          # [1, 4]
-                logits_list.append(logit)
-
-            if any_bad:
+            # 4) InternLM forward
+            final_hidden, _ = self.internlm_wrapper(
+                text_input_ids=sample_input_ids,
+                text_position_ids=sample_pos_ids,
+                attention_mask=sample_attn_mask,
+                visual_tokens=sample_vis_tok,
+                visual_mask=sample_vis_mask,
+                output_hidden_states=False,
+            )
+            if self._has_nonfinite(final_hidden, "final_hidden"):
+                any_bad = True
                 break
+
+            # 5) Extract h_a: mean pooling over <ASP>...</ASP> span
+            start_pos = asp_start_mask[b].nonzero(as_tuple=True)[0]
+            end_pos   = asp_end_mask[b].nonzero(as_tuple=True)[0]
+
+            if len(start_pos) > 0 and len(end_pos) > 0:
+                s = start_pos[0].item()
+                e = end_pos[0].item()
+                span_h = final_hidden[0, s:e+1]               # [span_len, D]
+                h_a = span_h.mean(dim=0, keepdim=True)        # [1, D] — diagram: mean pooling
+            else:
+                # Fallback: use first token
+                h_a = final_hidden[:, 0, :]                   # [1, D]
+
+            if self._has_nonfinite(h_a, "h_a"):
+                any_bad = True
+                break
+
+            # 6) Dot-product attention pooling (diagram: alpha_a = softmax(h_a H^T / sqrt(D)))
+            scores = torch.matmul(
+                h_a, final_hidden.transpose(1, 2)            # [1, L]
+            ) / (self.llm_hidden_size ** 0.5)
+
+            if sample_attn_mask is not None:
+                scores = scores.masked_fill(~sample_attn_mask.bool(), float("-inf"))
+
+            attn_weights = F.softmax(scores, dim=-1)          # [1, L]
+            z_a = torch.matmul(attn_weights, final_hidden)     # [1, D]
+
+            if self._has_nonfinite(z_a, "z_a"):
+                any_bad = True
+                break
+
+            # 7) Classifier
+            logit = self.classifier_head(z_a)                  # [1, 4]
+            logits_list.append(logit)
 
         if any_bad:
             return self._bad_batch_output(B, device)
 
-        # Concat all per-aspect logits: [B*6, 4] -> reshape to [B, 6, 4]
-        logits = torch.cat(logits_list, dim=0)             # [B*6, 4]
-        logits = logits.view(B, 6, self.num_classes)       # [B, 6, 4]
+        # Concat: [B, 4]
+        logits = torch.cat(logits_list, dim=0)
+        logits = logits.unsqueeze(1)                          # [B, 1, 4] for loss compat
 
         return {"logits": logits, "bad_batch": False}
 

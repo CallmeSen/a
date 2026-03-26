@@ -205,43 +205,49 @@ def make_collate_fn(tokenizer_ref):
         pixel_values = torch.stack(padded_pixels)
         image_counts_tensor = torch.tensor(image_counts)
 
-        # Build 6 aspect texts per sample (one per aspect)
-        aspect_texts_by_aspect = [[] for _ in range(6)]
+        # Pick ONE aspect per sample (first labelled one, fallback to index 0)
+        aspect_texts = []
+        aspect_labels = []
         multi_labels = []
 
         for item in batch:
-            comment = item["comment"]
             labels = item["labels"]
             multi_labels.append(labels)
-            for a in range(6):
-                aspect_texts_by_aspect[a].append(_build_aspect_text(comment, ID2ASPECT[a]))
 
-        # Tokenize all B*6 texts in one batch to ensure uniform length,
-        # then reshape to [B, 6, L] for multi-aspect forward pass.
-        all_texts = []
-        for a in range(6):
-            all_texts.extend(aspect_texts_by_aspect[a])
+            # Find first aspect with a non-zero (non-None) label
+            chosen_aid = 0
+            for aid in range(labels.size(0)):
+                if labels[aid].item() != 0:
+                    chosen_aid = aid
+                    break
+
+            aspect_name = ID2ASPECT[chosen_aid]
+            comment = item["comment"]
+            aspect_texts.append(_build_aspect_text(comment, aspect_name))
+            aspect_labels.append(labels[chosen_aid].item())
+
+        # Tokenize aspect-prompted texts
         text_inputs = tokenizer_ref(
-            all_texts,
+            aspect_texts,
             padding=True,
             truncation=True,
             max_length=MAX_TEXT_LENGTH,
             return_tensors="pt",
         )
-        B = len(batch)
-        L = text_inputs.input_ids.size(1)
-        input_ids = text_inputs.input_ids.view(B, 6, L)           # [B, 6, L]
-        attention_mask = text_inputs.attention_mask.view(B, 6, L) # [B, 6, L]
 
-        # Multi-label tensor: [B, 6] — used as labels for 6-aspect loss
+        # Labels: 1 aspect per sample
+        aspect_labels_tensor = torch.tensor(aspect_labels, dtype=torch.long)
+        # Multi-label tensor still kept for reference
         multi_labels_tensor = torch.stack(multi_labels)
 
         return {
             "pixel_values": pixel_values,
             "image_counts": image_counts_tensor,
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "labels": multi_labels_tensor,        # [B, 6] — all 6 aspect labels
+            "input_ids": text_inputs.input_ids,
+            "attention_mask": text_inputs.attention_mask,
+            "labels": aspect_labels_tensor,       # [B] — 1 label per sample
+            "multi_labels": multi_labels_tensor, # [B, 6] — full 6-aspect labels (for reference)
+            "aspect_texts": aspect_texts,
             "comments": [item["comment"] for item in batch],
             "image_paths": [item["image_paths"] for item in batch],
         }

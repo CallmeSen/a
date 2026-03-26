@@ -92,32 +92,25 @@ def predict_aspect_sentiment(
     Diagram-compliant: builds <ASP>aspect</ASP> prompt template,
     extracts h_a via mean pooling over span, dot-product attention pooling,
     then classifies.
-
-    Model now predicts all 6 aspects per sample; we extract only the
-    requested aspect from the [1, 6, 4] logits output.
     """
     model.eval()
     transform = build_transform(IMAGE_SIZE)
 
+    # Build aspect-prompted text
+    aspect_text = _build_aspect_text(comment, aspect_name)
+
     image = Image.open(image_path).convert("RGB")
     pixel_values = transform(image).unsqueeze(0).to(device, dtype=COMPUTE_DTYPE)
 
-    # Build 6 aspect texts, tokenize, stack to [1, 6, L]
-    aspect_texts = []
-    for a in range(NUM_ASPECTS):
-        aspect_texts.append(_build_aspect_text(comment, ID2ASPECT[a]))
-
     text_inputs = tokenizer(
-        aspect_texts,
+        [aspect_text],
         padding=True,
         truncation=True,
         max_length=MAX_TEXT_LENGTH,
         return_tensors="pt",
     )
-    input_ids = text_inputs.input_ids.to(device)            # [6, L]
-    input_ids = input_ids.unsqueeze(0)                      # [1, 6, L]
-    attention_mask = text_inputs.attention_mask.to(device)  # [6, L]
-    attention_mask = attention_mask.unsqueeze(0)            # [1, 6, L]
+    input_ids = text_inputs.input_ids.to(device)
+    attention_mask = text_inputs.attention_mask.to(device)
     image_counts = torch.tensor([1], device=device, dtype=torch.long)
 
     with torch.no_grad():
@@ -131,15 +124,8 @@ def predict_aspect_sentiment(
     if outputs.get("bad_batch", False):
         raise RuntimeError("Model returned bad_batch during inference")
 
-    # logits shape: [1, 6, 4] -> extract the requested aspect
-    logits_all = outputs["logits"]                              # [1, 6, 4]
-    a_id = [i for i, n in ID2ASPECT.items() if n == aspect_name]
-    if not a_id:
-        raise ValueError(f"Unknown aspect_name: {aspect_name}")
-    a_idx = a_id[0]
-    logits = logits_all[:, a_idx:a_idx+1, :]                     # [1, 1, 4]
-    logits = logits.squeeze(1)                                 # [1, 4]
-
+    # logits shape: [1, 1, 4] → squeeze to [1, 4]
+    logits = outputs["logits"].squeeze(0)  # [1, 4]
     result = _format_result(logits, single_aspect=True)
 
     if return_logits:

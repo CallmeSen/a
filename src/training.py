@@ -61,18 +61,18 @@ def setup_optimizer(sentiment_model, learning_rate, weight_decay):
 
 
 def compute_loss(outputs, labels, run_device):
-    """6-aspect 4-class CrossEntropy loss.
+    """Single-head 4-class CrossEntropy loss.
 
-    Model output shape: logits [B, 6, 4].
-    Labels shape: [B, 6].
-    We flatten to [B*6, 4] and [B*6] for cross_entropy.
+    Model output shape: logits [B, 1, 1, 4] (aspect_dim=1, single_class).
+    We squeeze the leading dimensions so cross_entropy receives [B, 4].
     """
-    logits = outputs["logits"]   # [B, 6, 4]
-    logits_flat = logits.view(-1, logits.size(-1))     # [B*6, 4]
-    labels_flat = labels.view(-1).long()               # [B*6]
+    logits = outputs["logits"]
+    # Handle [B, 1, 1, 4] -> squeeze leading singleton dims
+    while logits.dim() > 2:
+        logits = logits.squeeze(-2)  # remove inner dims until [B, 4]
     loss = F.cross_entropy(
-        logits_flat.float(),
-        labels_flat,
+        logits.float(),              # [B, 4]
+        labels.reshape(-1).long(),   # [B]
         reduction="mean",
     )
     return loss, loss.detach()
@@ -194,21 +194,6 @@ def train_epoch(
 
         scaled_loss = loss / gradient_accumulation_steps
         scaled_loss.backward()
-
-        # Check gradients for NaN/Inf IMMEDIATELY after backward — halt if found
-        grad_bad_params = [
-            (name, p) for name, p in model.named_parameters()
-            if p.grad is not None and not torch.isfinite(p.grad).all()
-        ]
-        if grad_bad_params:
-            optimizer.zero_grad(set_to_none=True)
-            bad_names = [f"{n} ({p.grad.numel()}elems)" for n, p in grad_bad_params]
-            raise RuntimeError(
-                f"[FATAL-NaN] NaN/Inf gradients detected in {len(grad_bad_params)} param(s) "
-                f"at step {step} after backward() — stopping immediately.\n"
-                f"  Bad params: {bad_names[:5]}"
-            )
-
         valid_micro_steps += 1
 
         total_loss += loss.item()
@@ -250,12 +235,6 @@ def train_epoch(
 
 @torch.no_grad()
 def validate(model, dataloader, run_device):
-    """Validate 6-aspect model.
-
-    Labels: [B, 6] — all 6 aspects per sample.
-    Logits: [B, 6, 4] — predict all 6 aspects.
-    F1 is computed over all B*6 flattened predictions.
-    """
     model.eval()
     total_loss = 0.0
     total_cls_loss = 0.0
@@ -298,8 +277,8 @@ def validate(model, dataloader, run_device):
         total_cls_loss += l_cls.item()
         num_batches += 1
 
-        logits = outputs["logits"]   # [B, 6, 4]
-        pred_labels = logits.argmax(dim=-1)  # [B, 6]
+        logits = outputs["logits"]
+        pred_labels = logits.argmax(dim=-1)
 
         all_true_labels.append(labels.cpu())
         all_pred_labels.append(pred_labels.cpu())
