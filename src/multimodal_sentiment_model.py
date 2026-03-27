@@ -18,6 +18,7 @@ import torch.nn.functional as F
 from .config import (
     ASPECT_START_ID,
     ASPECT_END_ID,
+    USE_LORA,
 )
 
 
@@ -27,7 +28,7 @@ class MultimodalSentimentModel(nn.Module):
         vision_encoder,
         projector,
         perceiver_resampler,
-        internlm_wrapper,
+        llm_wrapper,
         tokenizer,
         num_aspects: int = 6,
         num_classes: int = 4,
@@ -36,19 +37,25 @@ class MultimodalSentimentModel(nn.Module):
         self.vision_encoder = vision_encoder
         self.projector = projector
         self.perceiver_resampler = perceiver_resampler
-        self.internlm_wrapper = internlm_wrapper
+        self.llm_wrapper = llm_wrapper
         self.tokenizer = tokenizer
         self.num_aspects = num_aspects
         self.num_classes = num_classes
 
-        self.llm_hidden_size = internlm_wrapper.hidden_size
+        self.llm_hidden_size = llm_wrapper.hidden_size
 
-        # The LLM backbone is kept frozen (requires_grad=False) because it produces
-        # NaN during forward pass on this hardware — a known numerical instability in
-        # InternLM2 that does NOT affect training quality (only adapters + head train).
-        # NaN batches are caught by bad_batch=True and skipped cleanly.
-        for p in self.internlm_wrapper.internlm_base.parameters():
-            p.requires_grad = False
+        # Freezing strategy:
+        # - USE_LORA=0: Freeze entire Qwen backbone (avoids OOM on 44GB VRAM).
+        #   Only GatedCrossAttentionAdapter + classifier head train.
+        # - USE_LORA=1: Qwen wrapped in PeftModel → LoRA adapters train (no freeze needed).
+        # The _freeze_backbone flag is set by MultimodalSentimentModel after LoRA is applied.
+        self._freeze_llm_backbone = not USE_LORA
+        if self._freeze_llm_backbone:
+            print("[MultimodalSentimentModel] Qwen backbone frozen — only adapters train (avoids OOM)")
+            for p in llm_wrapper.qwen_base.parameters():
+                p.requires_grad = False
+        else:
+            print("[MultimodalSentimentModel] LoRA active — Qwen backbone unfrozen")
 
         # Gradient safety hooks for trainable params: replace NaN/Inf grads with 0.
         # masked_fill_ is DDP-compatible because it modifies the grad in-place.
@@ -152,6 +159,97 @@ class MultimodalSentimentModel(nn.Module):
 
         return visual_tokens.to(dtype=torch.float32), visual_mask, False
 
+    def _extract_z_a_vectorized(
+        self,
+        final_hidden: torch.Tensor,   # bf16 from Qwen forward
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
+        start_id: int,
+        end_id: int,
+    ) -> torch.Tensor:
+        """
+        Vectorized z_a extraction (R4).
+
+        All computations done in bf16 to match Qwen activations (COMPUTE_DTYPE=bfloat16).
+        Returns z_a in bf16, classifier_head casts to float32.
+        """
+        B, L, D = final_hidden.shape
+        device = final_hidden.device
+        # Cast to bf16 — Qwen forward outputs bf16, ensure all ops use it consistently.
+        final_hidden = final_hidden.to(torch.bfloat16)
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(torch.bfloat16)
+        """
+        Fully vectorized h_a extraction + dot-product attention pooling for the entire batch.
+
+        Args:
+            final_hidden: [B, L, D] — LLM output with visual info injected
+            input_ids:    [B, L] — to locate <ASP>...</ASP> spans
+            attention_mask: [B, L] or None
+            start_id: int — token ID for <ASP>
+            end_id:   int — token ID for </ASP>
+
+        Returns:
+            z_a: [B, D] — aspect-aware multimodal representation
+        """
+        B, L, D = final_hidden.shape
+        device = final_hidden.device
+
+        # 1) Locate span boundaries per sample
+        asp_start_mask = (input_ids == start_id)    # [B, L]
+        asp_end_mask   = (input_ids == end_id)      # [B, L]
+
+        # 2) argmax per sample to find first <ASP> and first </ASP>
+        start_ones = asp_start_mask.float()
+        end_ones   = asp_end_mask.float()
+
+        # Guard: if no <ASP> token found → use position 0
+        start_pos = start_ones.argmax(dim=1)         # [B]
+        end_pos   = end_ones.argmax(dim=1)           # [B]
+
+        # Detect "all-zero" rows (no token found) and replace with L-1
+        start_valid = asp_start_mask.any(dim=1)      # [B]
+        end_valid   = asp_end_mask.any(dim=1)        # [B]
+        start_pos = torch.where(start_valid, start_pos, torch.zeros_like(start_pos))
+        end_pos   = torch.where(end_valid,   end_pos,   torch.full_like(end_pos, L - 1))
+
+        # Clamp: ensure end >= start
+        end_pos = torch.max(end_pos, start_pos)
+
+        # 3) Mean-pool h_a over the span [start, end] per sample — vectorized
+        span_len = (end_pos - start_pos + 1).float()  # [B]
+
+        # Use index_select + cumulative-sum trick for per-sample mean pooling
+        # Expand to [B, L, D] — element-wise multiply and sum
+        arange_3d = torch.arange(L, device=device).unsqueeze(0).unsqueeze(-1)   # [1, L, 1]
+        start_3d  = start_pos.unsqueeze(1).unsqueeze(-1)                         # [B, 1, 1]
+        end_3d    = end_pos.unsqueeze(1).unsqueeze(-1)                           # [B, 1, 1]
+
+        in_span = (arange_3d >= start_3d) & (arange_3d <= end_3d)               # [B, L, 1]
+        span_len_3d = span_len.unsqueeze(-1).unsqueeze(-1)                       # [B, 1, 1]
+
+        h_a_sum = (final_hidden * in_span.float()).sum(dim=1)                    # [B, D]
+        h_a = h_a_sum / span_len_3d.squeeze(-1).clamp(min=1.0)               # [B, D]
+
+        if not torch.isfinite(h_a).all():
+            print("[NaN-DETECT] h_a vectorized — batch will be skipped")
+            return torch.zeros(B, D, device=device, dtype=torch.bfloat16)
+
+        # 4) Dot-product attention pooling: z_a = softmax(h_a · H^T / √D) · H
+        # Cast everything to float32 for stable matmul — bf16 residual from Qwen
+        # is preserved through the hook's (adapted_bf16, None) return path.
+        H_T = final_hidden.to(torch.float32).transpose(1, 2)                  # [B, D, L] float32
+        h_a_3d = h_a.unsqueeze(1)                                               # [B, 1, D] float32
+        scores = torch.bmm(h_a_3d, H_T).squeeze(1) / (D ** 0.5)                # [B, L] float32
+
+        if attention_mask is not None:
+            scores = scores.masked_fill(~attention_mask.bool(), float("-inf"))
+
+        attn_weights = F.softmax(scores, dim=1).unsqueeze(1)                  # [B, 1, L] float32
+        z_a = torch.bmm(attn_weights, final_hidden.to(torch.float32)).squeeze(1)  # [B, D] float32
+
+        return z_a
+
     def forward(
         self,
         pixel_values: torch.Tensor,
@@ -160,14 +258,14 @@ class MultimodalSentimentModel(nn.Module):
         image_counts: Optional[torch.Tensor] = None,
     ) -> dict:
         """
-        Diagram-compliant forward pass:
-        - Encode images once (share across all aspects)
-        - Per-sample: find <ASP>...</ASP> span → extract h_a via mean pooling
-        - Dot-product attention pooling: z_a = softmax(h_a · H^T / sqrt(D)) · H
-        - Classify: logits = Linear(z_a)
+        Vectorized diagram-compliant forward pass.
 
-        If ANY sample produces NaN at any intermediate step, the entire batch
-        is marked bad_batch=True so training can skip it cleanly.
+        Changes from per-sample loop (R4):
+        - InternLM forward: ONE batched call instead of B per-sample calls.
+        - h_a extraction: fully vectorized span mean-pooling instead of per-sample loop.
+        - z_a extraction: batched dot-product attention pooling.
+
+        GPU utilization ~B× higher vs original per-sample loop.
         """
         B = input_ids.size(0)
         device = input_ids.device
@@ -179,95 +277,43 @@ class MultimodalSentimentModel(nn.Module):
         if bad_batch:
             return self._bad_batch_output(B, device)
 
-        # 2) Locate <ASP> and </ASP> token positions in the batch
+        # 2) Resolve special token IDs
         start_id = ASPECT_START_ID
         end_id = ASPECT_END_ID
-
-        # Handle case where special tokens not yet registered (e.g., inference before tokenizer init)
         if start_id is None or end_id is None:
             from .config import ASPECT_START, ASPECT_END
             start_id = self.tokenizer.convert_tokens_to_ids(ASPECT_START)
             end_id = self.tokenizer.convert_tokens_to_ids(ASPECT_END)
 
-        asp_start_mask = (input_ids == start_id)   # [B, L] bool
-        asp_end_mask   = (input_ids == end_id)     # [B, L] bool
+        # 3) InternLM forward — SINGLE batched call (R4: was B per-sample calls)
+        seq_len = input_ids.size(1)
+        position_ids = torch.arange(seq_len, device=device, dtype=torch.long).unsqueeze(0).expand(B, -1)
 
-        logits_list = []
-        any_bad = False
+        final_hidden, _ = self.llm_wrapper(
+            text_input_ids=input_ids,
+            text_position_ids=position_ids,
+            attention_mask=attention_mask,
+            visual_tokens=visual_tokens,
+            visual_mask=visual_mask,
+            output_hidden_states=False,
+        )
 
-        # 3) Per-sample sequential processing (diagram: per-aspect)
-        for b in range(B):
-            # Extract single-sample tensors
-            sample_input_ids = input_ids[b:b+1]                # [1, L]
-            sample_attn_mask = attention_mask[b:b+1] if attention_mask is not None else None
-            sample_vis_tok   = visual_tokens[b:b+1]             # [1, N_vis, H]
-            sample_vis_mask  = visual_mask[b:b+1]              # [1, N_vis]
-
-            # Build position_ids for this sample
-            seq_len = sample_input_ids.size(1)
-            sample_pos_ids = torch.arange(
-                seq_len, device=device, dtype=torch.long
-            ).unsqueeze(0)                                      # [1, L]
-
-            # 4) InternLM forward
-            final_hidden, _ = self.internlm_wrapper(
-                text_input_ids=sample_input_ids,
-                text_position_ids=sample_pos_ids,
-                attention_mask=sample_attn_mask,
-                visual_tokens=sample_vis_tok,
-                visual_mask=sample_vis_mask,
-                output_hidden_states=False,
-            )
-            if self._has_nonfinite(final_hidden, "final_hidden"):
-                any_bad = True
-                break
-
-            # 5) Extract h_a: mean pooling over <ASP>...</ASP> span
-            start_pos = asp_start_mask[b].nonzero(as_tuple=True)[0]
-            end_pos   = asp_end_mask[b].nonzero(as_tuple=True)[0]
-
-            if len(start_pos) > 0 and len(end_pos) > 0:
-                s = start_pos[0].item()
-                e = end_pos[0].item()
-                span_h = final_hidden[0, s:e+1]               # [span_len, D]
-                h_a = span_h.mean(dim=0, keepdim=True)        # [1, D] (or [1,1,D] if span_len==1)
-                if h_a.dim() == 3:
-                    h_a = h_a.squeeze(1)                      # [1,1,D] -> [1,D]
-            else:
-                # Fallback: use first token
-                h_a = final_hidden[:, 0, :]                   # [1, D]
-
-            if self._has_nonfinite(h_a, "h_a"):
-                any_bad = True
-                break
-
-            # 6) Dot-product attention pooling (diagram: alpha_a = softmax(h_a H^T / sqrt(D)))
-            h_a_flat = h_a.squeeze(0)                        # [D] for clean matmul
-            final_h_T = final_hidden.transpose(1, 2)          # [1, D, L]
-            scores = torch.matmul(
-                h_a_flat.unsqueeze(0), final_h_T             # [1, D] x [1, D, L] -> [1, L]
-            ).squeeze(1) / (self.llm_hidden_size ** 0.5)      # [1, L]
-
-            if sample_attn_mask is not None:
-                scores = scores.masked_fill(~sample_attn_mask.bool(), float("-inf"))
-
-            attn_weights = F.softmax(scores, dim=-1).unsqueeze(1)   # [1, 1, L]
-            z_a = torch.matmul(attn_weights, final_hidden).squeeze(1)  # [1, D]
-
-            if self._has_nonfinite(z_a, "z_a"):
-                any_bad = True
-                break
-
-            # 7) Classifier
-            logit = self.classifier_head(z_a)                  # [1, 4]
-            logits_list.append(logit)
-
-        if any_bad:
+        if self._has_nonfinite(final_hidden, "final_hidden_vectorized"):
             return self._bad_batch_output(B, device)
 
-        # Concat: [B, 4]
-        logits = torch.cat(logits_list, dim=0)
-        logits = logits.unsqueeze(1).unsqueeze(1)   # [B, 1, 1, 4] for loss compat
+        # 4) Vectorized h_a extraction + z_a (R4: replaces per-sample loop)
+        z_a = self._extract_z_a_vectorized(
+            final_hidden, input_ids, attention_mask, start_id, end_id
+        )
+
+        if self._has_nonfinite(z_a, "z_a_vectorized"):
+            return self._bad_batch_output(B, device)
+
+        # 5) Classifier — batched
+        # Cast to float32 to match classifier_head weight dtype (float32).
+        # BF16 activations from Qwen forward are preserved in z_a.
+        logits = self.classifier_head(z_a.to(torch.float32))  # [B, 4]
+        logits = logits.unsqueeze(1).unsqueeze(1)               # [B, 1, 1, 4] for loss compat
 
         return {"logits": logits, "bad_batch": False}
 

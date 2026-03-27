@@ -5,12 +5,12 @@ import torch
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-COMPUTE_DTYPE = torch.float32
+COMPUTE_DTYPE = torch.bfloat16
 
 VISION_MODEL_NAME = "microsoft/swinv2-base-patch4-window8-256"
 VISION_HIDDEN_SIZE = 1024
-LLM_MODEL_NAME = "internlm/internlm2_5-1_8b"
-LLM_HIDDEN_SIZE = 2048
+LLM_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
+LLM_HIDDEN_SIZE = 3584
 
 IMAGE_SIZE = 256
 MAX_TEXT_LENGTH = 256
@@ -27,8 +27,14 @@ BATCH_SIZE = 8
 NUM_WORKERS = 0
 
 LEARNING_RATE = 2e-5
-LORA_LR = 1e-6
 WEIGHT_DECAY = 0.01
+LORA_LR = 1e-4
+LORA_R = 16
+LORA_ALPHA = 32
+LORA_DROPOUT = 0.05
+USE_LORA = os.environ.get("USE_LORA", "0") == "1"
+USE_MULTITASK = os.environ.get("USE_MULTITASK", "0") == "1"
+USE_WEIGHTED_SAMPLER = os.environ.get("USE_WEIGHTED_SAMPLER", "0") == "1"
 NUM_EPOCHS = 10
 WARMUP_PROPORTION = 0.1
 GRADIENT_ACCUMULATION_STEPS = 2

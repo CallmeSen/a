@@ -3,15 +3,17 @@
 from .vit_transformer import VisionEncoder
 from .projector_layer import MLPProjector
 from .perceiver_resampler import PerceiverResampler
-from .internlm_wrapper import InternLMWrapper
+from .qwen_wrapper import QwenLMWrapper
 from .multimodal_sentiment_model import MultimodalSentimentModel
-from .language_model import build_tokenizer_and_llm, build_tokenizer_only
+from .llm_factory import build_tokenizer_and_llm, build_tokenizer_only
 from .data import (
     SentimentDataset,
     make_collate_fn,
     load_all_splits,
     build_transform,
     build_train_transform,
+    compute_class_weights,
+    build_weighted_sampler,
 )
 from .training import LazyLambdaScheduler, train_epoch, validate, setup_optimizer
 from .inference import predict_aspect_sentiment
@@ -21,7 +23,7 @@ __all__ = [
     "VisionEncoder",
     "MLPProjector",
     "PerceiverResampler",
-    "InternLMWrapper",
+    "QwenLMWrapper",
     "MultimodalSentimentModel",
     "build_tokenizer_and_llm",
     "build_tokenizer_only",
@@ -31,6 +33,8 @@ __all__ = [
     "load_all_splits",
     "build_transform",
     "build_train_transform",
+    "compute_class_weights",
+    "build_weighted_sampler",
     # Training
     "LazyLambdaScheduler",
     "train_epoch",

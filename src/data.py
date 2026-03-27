@@ -24,7 +24,60 @@ from .config import (
     ASPECT_END,
     ASPECT2ID,
     ID2ASPECT,
+    ASPECT_LABELS,
+    CLASS_LABELS,
 )
+
+
+def compute_class_weights(dataset_splits, num_classes=4):
+    """Đếm tần suất mỗi class trong training set và compute inverse-frequency weights.
+
+    Mỗi sample trong training set được expand thành 6 aspects.
+    - Aspect có trong parsed_labels → sentiment class (1/2/3)
+    - Aspect không có trong parsed_labels → class "None" (id=0)
+    """
+    from collections import Counter
+
+    all_labels = []
+    for item in dataset_splits.get("train", []):
+        raw_labels = item.get("text_img_label", [])
+        parsed = []
+        for label in raw_labels:
+            parsed_l = _parse_label_standalone(label)
+            if parsed_l is not None:
+                parsed.append(parsed_l)
+
+        mentioned_aspects = {p[0] for p in parsed}
+        for aspect in ASPECT_LABELS:
+            if aspect in mentioned_aspects:
+                sentiment = next(s for a, s in parsed if a == aspect)
+                all_labels.append(sentiment)
+            else:
+                all_labels.append("None")
+
+    counter = Counter(all_labels)
+    total = len(all_labels)
+    weights = torch.zeros(num_classes, dtype=torch.float32)
+    for i, cls_name in enumerate(CLASS_LABELS):
+        freq = counter.get(cls_name, 0)
+        weights[i] = total / (freq + 1e-6)
+    weights = weights / weights.sum() * num_classes
+    print(f"[DATA] Class distribution: {dict(sorted(counter.items()))}")
+    print(f"[DATA] Class weights: {[round(w.item(), 4) for w in weights]}")
+    return weights
+
+
+def _parse_label_standalone(label: str):
+    """Standalone label parser (equivalent to SentimentDataset._parse_label)."""
+    if "#" not in label:
+        return None
+    parts = label.split("#")
+    if len(parts) != 2:
+        return None
+    aspect, sentiment = parts[0], parts[1]
+    if aspect in ASPECT2ID and sentiment in _SENTIMENT_TO_CLASS:
+        return (aspect, sentiment)
+    return None
 
 
 swin_image_processor = AutoImageProcessor.from_pretrained(VISION_MODEL_NAME)
@@ -50,10 +103,19 @@ def build_transform(input_size: int = IMAGE_SIZE):
 
 
 def build_train_transform(input_size: int = IMAGE_SIZE):
+    """Image augmentation for training — applied to ALL classes uniformly.
+
+    Additions vs basic (R7):
+    - RandomRotation(±15°): helps model see rotated hotel views
+    - RandomGrayscale(p=0.1): simulates low-light / monochrome images
+    - RandomVerticalFlip(p=0.2): hotel photos can be taken from various angles
+    """
     train_aug = T.Compose(
         [
             T.RandomResizedCrop((input_size, input_size), scale=(0.85, 1.0), interpolation=InterpolationMode.BICUBIC),
             T.RandomHorizontalFlip(p=0.5),
+            T.RandomRotation(degrees=15),
+            T.RandomGrayscale(p=0.1),
             T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1),
         ]
     )
@@ -147,6 +209,7 @@ class SentimentDataset(Dataset):
                     "image_paths": valid_img_paths,
                     "parsed_labels": parsed_labels,
                     "raw_labels": raw_labels,
+                    "aspect_present": {aspect: any(a == aspect for a, _ in parsed_labels) for aspect in ASPECT_LABELS},
                 }
             )
 
@@ -179,6 +242,7 @@ class SentimentDataset(Dataset):
             "labels": labels,
             "comment": sample["comment"],
             "image_paths": sample["image_paths"],
+            "aspect_present": sample["aspect_present"],
         }
 
 
@@ -203,10 +267,13 @@ def make_collate_fn(tokenizer_ref):
             for aid in range(labels.size(0)):
                 aspect_name = ID2ASPECT[aid]
                 aspect_texts = _build_aspect_text(comment, aspect_name)
+                # R8: aspect_present = 1 if mentioned in dataset, 0 if "None"
+                aspect_present_val = 1 if item["aspect_present"].get(aspect_name, False) else 0
                 expanded_items.append({
                     "pixel_values": pixel_values,
                     "num_images": num_images,
                     "label": labels[aid].item(),   # scalar label for this aspect
+                    "aspect_present": aspect_present_val,  # R8: binary aux label
                     "aspect_text": aspect_texts,
                     "comment": comment,
                     "image_paths": image_paths,
@@ -243,12 +310,18 @@ def make_collate_fn(tokenizer_ref):
         aspect_labels = [item["label"] for item in expanded_items]
         aspect_labels_tensor = torch.tensor(aspect_labels, dtype=torch.long)
 
+        # R8: Aspect presence labels for auxiliary task [B]
+        aspect_present_labels = torch.tensor(
+            [item["aspect_present"] for item in expanded_items], dtype=torch.long
+        )
+
         return {
             "pixel_values": pixel_values_batch,
             "image_counts": image_counts_tensor,
             "input_ids": text_inputs.input_ids,
             "attention_mask": text_inputs.attention_mask,
-            "labels": aspect_labels_tensor,          # [B]
+            "labels": aspect_labels_tensor,          # [B] — sentiment class
+            "aspect_present_labels": aspect_present_labels,  # [B] — R8: binary
         }
 
     return collate_fn
@@ -266,3 +339,43 @@ def build_dataloaders(dataset_splits: Dict[str, list], aspect2id: dict, tokenize
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn, num_workers=NUM_WORKERS)
 
     return train_dataset, dev_dataset, test_dataset, train_loader, dev_loader, test_loader
+
+
+def build_weighted_sampler(dataset: SentimentDataset, minority_upsample_ratio: float = 4.0) -> "torch.utils.data.WeightedRandomSampler":
+    """
+    WeightedRandomSampler that oversamples samples with minority sentiment labels.
+
+    R7: For class imbalance — samples containing Positive/Negative/Neutral aspects
+    (not "None" only) are upsampled by `minority_upsample_ratio`.
+
+    The sampler operates on raw dataset items (before aspect expansion), so each
+    item contributes weight based on whether it has any sentiment aspect.
+
+    Args:
+        dataset: SentimentDataset
+        minority_upsample_ratio: multiplier for samples with non-None sentiment
+    Returns:
+        WeightedRandomSampler instance (or None if all samples are equal weight)
+    """
+    import torch.utils.data
+    weights = []
+    for sample in dataset.samples:
+        labels = sample["parsed_labels"]
+        # If any aspect has sentiment (not "None") → minority → upsampled
+        has_sentiment = any(sent != "None" for _, sent in labels)
+        weight = minority_upsample_ratio if has_sentiment else 1.0
+        weights.append(weight)
+
+    total = sum(weights)
+    # Normalize to valid probability distribution
+    probabilities = [w / total for w in weights]
+
+    num_samples = len(weights)
+    sampler = torch.utils.data.WeightedRandomSampler(
+        weights=probabilities,
+        num_samples=num_samples,
+        replacement=True,
+    )
+    print(f"[DATA] WeightedRandomSampler: {num_samples} samples, "
+          f"minority_upsample_ratio={minority_upsample_ratio}")
+    return sampler

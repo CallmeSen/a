@@ -48,12 +48,13 @@ from src import (
     MLPProjector,
     MultimodalSentimentModel,
     PerceiverResampler,
-    InternLMWrapper,
+    QwenLMWrapper,
     SentimentDataset,
     make_collate_fn,
     load_all_splits,
     build_transform,
     build_train_transform,
+    compute_class_weights,
     LazyLambdaScheduler,
     train_epoch,
     validate,
@@ -61,6 +62,9 @@ from src import (
     predict_aspect_sentiment,
     build_tokenizer_and_llm,
 )
+from src.multitask_model import MultitaskSentimentModel
+from src.lora_layers import apply_lora_to_llm, print_lora_summary
+from src.data import build_weighted_sampler
 from src.config import (
     setup_runtime,
     device,
@@ -68,7 +72,6 @@ from src.config import (
     VISION_MODEL_NAME,
     VISION_HIDDEN_SIZE,
     LLM_MODEL_NAME,
-    LLM_HIDDEN_SIZE,
     IMAGE_SIZE,
     MAX_IMAGES,
     DATA_DIR,
@@ -88,6 +91,13 @@ from src.config import (
     ASPECT_LABELS,
     CLASS_LABELS,
     ASPECT2ID,
+    NUM_CLASSES,
+    USE_LORA,
+    USE_MULTITASK,
+    USE_WEIGHTED_SAMPLER,
+    LORA_R,
+    LORA_ALPHA,
+    LORA_DROPOUT,
 )
 
 
@@ -108,13 +118,28 @@ def main():
     # 1) Load dataset splits
     dataset_splits = load_all_splits(DATA_DIR)
 
-    # 2) Build tokenizer + LLM base
+    # Compute class weights from training set for imbalanced CrossEntropyLoss
+    class_weights = compute_class_weights(dataset_splits, NUM_CLASSES).to(device)
+
+    # 2) Build tokenizer + LLM base (Qwen2.5-7B-Instruct)
     print(f"\nLoading LLM: {LLM_MODEL_NAME}")
-    tokenizer, llm_for_clm, llm_base, num_layers = build_tokenizer_and_llm()
+    tokenizer, llm_for_clm, llm_base, num_layers, llm_hidden_size = build_tokenizer_and_llm()
     print(
         f"Tokenizer: padding_side={tokenizer.padding_side}, "
         f"pad_token={tokenizer.pad_token} (id={tokenizer.pad_token_id})"
     )
+
+    # 2b) Apply LoRA to Qwen backbone if USE_LORA=1
+    if USE_LORA:
+        print(f"\n[LoRA] Applying LoRA: r={LORA_R}, alpha={LORA_ALPHA}")
+        llm_base = apply_lora_to_llm(
+            llm_base,
+            r=LORA_R,
+            alpha=LORA_ALPHA,
+            dropout=LORA_DROPOUT,
+        )
+        # llm_base is now a PeftModel wrapping Qwen2Model
+        print_lora_summary(llm_base)
 
     # 3) Build vision + projector
     vision_encoder = VisionEncoder(
@@ -124,37 +149,42 @@ def main():
     )
     projector = MLPProjector(
         vision_dim=VISION_HIDDEN_SIZE,
-        llm_dim=LLM_HIDDEN_SIZE,
+        llm_dim=llm_hidden_size,
     ).to(device)
 
     # 4) PerceiverResampler
     perceiver_resampler = PerceiverResampler(
-        vision_dim=LLM_HIDDEN_SIZE,
+        vision_dim=llm_hidden_size,
         num_queries=16,
         num_heads=8,
         expansion=4,
     ).to(device)
 
-    # 5) InternLM wrapper
+    # 5) QwenLMWrapper (visual cross-attention injection)
     use_adapter_layers = list(range(num_layers - 4, num_layers))  # last 4 adapters
-    internlm_wrapper = InternLMWrapper(
-        internlm_for_casual_lm=llm_for_clm,
+    llm_wrapper = QwenLMWrapper(
+        qwen_for_casual_lm=llm_for_clm,
         num_layers=num_layers,
-        hidden_size=LLM_HIDDEN_SIZE,
+        hidden_size=llm_hidden_size,
         num_visual_tokens=16 * MAX_IMAGES,
         use_adapter_layers=use_adapter_layers,
     ).to(device)
 
-    # 6) Full multimodal model
+    # 6) Full multimodal model (single-task or R8 multitask)
     sentiment_model = MultimodalSentimentModel(
         vision_encoder=vision_encoder,
         projector=projector,
         perceiver_resampler=perceiver_resampler,
-        internlm_wrapper=internlm_wrapper,
+        llm_wrapper=llm_wrapper,
         tokenizer=tokenizer,
         num_aspects=len(ASPECT_LABELS),
         num_classes=len(CLASS_LABELS),
     ).to(device)
+
+    # R8: Wrap with MultitaskSentimentModel if USE_MULTITASK=1
+    if USE_MULTITASK:
+        print("\n[R8] Wrapping model with MultitaskSentimentModel (auxiliary aspect detection)")
+        sentiment_model = MultitaskSentimentModel(sentiment_model).to(device)
 
     total_params, trainable_params_total = sentiment_model.get_trainable_params()
     print(f"Total parameters: {total_params:,}")
@@ -243,6 +273,8 @@ def main():
                 trainable_params,
                 gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
                 tokenizer=tokenizer,
+                class_weights=class_weights,
+                use_multitask=USE_MULTITASK,
             )
             train_losses.append(train_loss)
         except RuntimeError as e:
@@ -258,6 +290,8 @@ def main():
             sentiment_model,
             val_loader_local,
             device,
+            class_weights=class_weights,
+            use_multitask=USE_MULTITASK,
         )
         val_losses.append(val_loss)
 
@@ -314,6 +348,8 @@ def main():
         sentiment_model,
         test_loader_local,
         device,
+        class_weights=class_weights,
+        use_multitask=USE_MULTITASK,
     )
     print(f"\n=== Test Set ===")
     print(f"Test Loss: {test_loss:.4f} (CLS={test_cls:.4f})")
@@ -374,14 +410,26 @@ def _build_train_loader(dataset_splits, tokenizer):
     collate_fn = make_collate_fn(tokenizer)
     g = torch.Generator()
     g.manual_seed(SEED)
-    return DataLoader(
-        train_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=True,
-        collate_fn=collate_fn,
-        num_workers=NUM_WORKERS,
-        generator=g,
-    )
+
+    if USE_WEIGHTED_SAMPLER:
+        # R7: WeightedRandomSampler — oversamples minority sentiment samples
+        sampler = build_weighted_sampler(train_dataset, minority_upsample_ratio=4.0)
+        return DataLoader(
+            train_dataset,
+            batch_size=BATCH_SIZE,
+            sampler=sampler,
+            collate_fn=collate_fn,
+            num_workers=NUM_WORKERS,
+        )
+    else:
+        return DataLoader(
+            train_dataset,
+            batch_size=BATCH_SIZE,
+            shuffle=True,
+            collate_fn=collate_fn,
+            num_workers=NUM_WORKERS,
+            generator=g,
+        )
 
 
 def _build_val_loader(dataset_splits, tokenizer):

@@ -19,9 +19,24 @@ class VisionEncoder(nn.Module):
         print(f"Loading Swin Transformer V2: {model_name} (torch_dtype={self.torch_dtype})")
         self.model = AutoModel.from_pretrained(model_name, torch_dtype=torch.float32).to(run_device)
 
-        for param in self.model.parameters():
-            param.requires_grad = False
+        # Unfreeze last 2 encoder stages (stages 2 and 3) for task-specific visual features.
+        # Stages 0-1 remain frozen to preserve pretrained general-purpose representations.
+        # Stages 2-3 train with a lower learning rate (managed by setup_optimizer).
+        frozen_count = 0
+        trainable_count = 0
+        for name, param in self.model.named_parameters():
+            if "encoder.layers.2" in name or "encoder.layers.3" in name:
+                param.requires_grad = True
+                trainable_count += 1
+            else:
+                param.requires_grad = False
+                frozen_count += 1
+
+        # Keep in eval mode so BatchNorm/rms_norm statistics are used as-is.
+        # This prevents train mode from corrupting pretrained BN statistics.
         self.model.eval()
+        print(f"Vision encoder: {frozen_count} params frozen (stages 0-1), "
+              f"{trainable_count} params trainable (stages 2-3)")
 
         self.hidden_size = self.model.config.hidden_size
         with torch.no_grad():
@@ -31,7 +46,6 @@ class VisionEncoder(nn.Module):
 
         print(f"Loaded: hidden_size={self.hidden_size}, num_patches={self.num_patches}")
 
-    @torch.no_grad()
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
         pixel_values = pixel_values.to(self.device, dtype=self.torch_dtype)
         outputs = self.model(pixel_values=pixel_values)

@@ -47,21 +47,40 @@ class LazyLambdaScheduler:
         return list(self._last_lr)
 
 
-def setup_optimizer(sentiment_model, learning_rate, weight_decay):
+def setup_optimizer(sentiment_model, learning_rate, weight_decay, vision_lr_ratio=0.1):
+    """Setup AdamW optimizer with separate LR for vision encoder.
+
+    vision_lr_ratio: multiplier applied to learning_rate for vision_encoder params.
+    Default 0.1 means vision gets LR = learning_rate * 0.1.
+    """
     trainable_params = [
         param for _, param in sentiment_model.named_parameters()
         if param.requires_grad
     ]
+
+    vision_params = [
+        p for n, p in sentiment_model.named_parameters()
+        if p.requires_grad and "vision_encoder" in n
+    ]
+    other_params = [
+        p for n, p in sentiment_model.named_parameters()
+        if p.requires_grad and "vision_encoder" not in n
+    ]
+
+    param_groups = [{"params": other_params, "lr": learning_rate}]
+    if vision_params:
+        param_groups.append({"params": vision_params, "lr": learning_rate * vision_lr_ratio})
+
     optimizer = torch.optim.AdamW(
-        [{"params": trainable_params, "lr": learning_rate}],
+        param_groups,
         weight_decay=weight_decay,
         eps=1e-5,
     )
     return optimizer, trainable_params
 
 
-def compute_loss(outputs, labels, run_device):
-    """Single-head 4-class CrossEntropy loss.
+def compute_loss(outputs, labels, run_device, class_weights=None):
+    """Single-head 4-class CrossEntropy loss with optional class weights.
 
     Model output shape: logits [B, 1, 1, 4].
     Squeeze leading singleton dims so cross_entropy receives [B, 4].
@@ -73,6 +92,7 @@ def compute_loss(outputs, labels, run_device):
     loss = F.cross_entropy(
         logits.float(),              # [B, 4]
         labels.reshape(-1).long(),   # [B]
+        weight=class_weights,
         reduction="mean",
     )
     return loss, loss.detach()
@@ -115,6 +135,43 @@ def _optimizer_step(
     return False
 
 
+def multi_task_compute_loss(outputs, labels, aspect_present_labels, run_device, class_weights=None):
+    """R8: Auxiliary multi-task loss = sentiment CE + 0.5 * aspect BCE.
+
+    - Sentiment loss: computed on all samples (but gated by aspect via soft gate in forward)
+    - Aspect loss: binary CE on aspect_present_labels (auxiliary task)
+
+    Returns:
+        total_loss, sentiment_loss, aspect_loss
+    """
+    logits = outputs["logits"]
+    while logits.dim() > 2:
+        logits = logits.squeeze(-2)
+
+    aspect_logits = outputs.get("aspect_logits")  # [B, 1]
+    B = labels.size(0)
+
+    # Task 1: Sentiment classification (main loss)
+    sentiment_loss = F.cross_entropy(
+        logits.float(), labels.reshape(-1).long(),
+        weight=class_weights,
+        reduction="mean",
+    )
+
+    # Task 2: Aspect detection (auxiliary, weight=0.5)
+    if aspect_logits is not None and aspect_present_labels is not None:
+        aspect_loss = F.binary_cross_entropy_with_logits(
+            aspect_logits.squeeze(-1),
+            aspect_present_labels.float(),
+            reduction="mean",
+        )
+        # Combined: L = sentiment_loss + 0.5 * aspect_loss
+        total_loss = sentiment_loss + 0.5 * aspect_loss
+        return total_loss, sentiment_loss, aspect_loss
+
+    return sentiment_loss, sentiment_loss, torch.tensor(0.0, device=run_device)
+
+
 def train_epoch(
     model,
     dataloader,
@@ -124,7 +181,14 @@ def train_epoch(
     trainable_params,
     gradient_accumulation_steps=1,
     tokenizer=None,
+    class_weights=None,
+    use_multitask=False,
 ):
+    """train_epoch: supports both single-task and R8 multitask mode.
+
+    use_multitask=True: uses multi_task_compute_loss (aspect_present_labels from batch).
+    use_multitask=False: uses compute_loss (backward compatible).
+    """
     model.train()
     total_loss = 0.0
     total_cls_loss = 0.0
@@ -142,6 +206,13 @@ def train_epoch(
         pixel_values = batch["pixel_values"].to(run_device, dtype=COMPUTE_DTYPE)
         input_ids = batch["input_ids"].to(run_device)
         labels = batch["labels"].to(run_device)
+
+        # R8: Multitask — extract aspect_present_labels
+        aspect_present_labels = None
+        if use_multitask:
+            asp_labels = batch.get("aspect_present_labels")
+            if asp_labels is not None:
+                aspect_present_labels = asp_labels.to(run_device)
 
         attention_mask = batch.get("attention_mask")
         if attention_mask is not None:
@@ -176,7 +247,14 @@ def train_epoch(
             optimizer.zero_grad(set_to_none=True)
             continue
 
-        loss, l_cls = compute_loss(outputs, labels, run_device)
+        # R8: Multitask vs single-task loss
+        if use_multitask and aspect_present_labels is not None:
+            loss, l_cls, asp_loss = multi_task_compute_loss(
+                outputs, labels, aspect_present_labels, run_device, class_weights
+            )
+        else:
+            loss, l_cls = compute_loss(outputs, labels, run_device, class_weights)
+            asp_loss = None
         if not torch.isfinite(loss):
             skipped_batches += 1
             optimizer.zero_grad(set_to_none=True)
@@ -234,7 +312,11 @@ def train_epoch(
 
 
 @torch.no_grad()
-def validate(model, dataloader, run_device):
+def validate(model, dataloader, run_device, class_weights=None, use_multitask=False):
+    """Validate — supports both single-task and R8 multitask mode.
+
+    use_multitask=True: computes sentiment loss only (aspect detection is auxiliary, not metric-tracked).
+    """
     model.eval()
     total_loss = 0.0
     total_cls_loss = 0.0
@@ -247,6 +329,13 @@ def validate(model, dataloader, run_device):
         pixel_values = batch["pixel_values"].to(run_device, dtype=COMPUTE_DTYPE)
         input_ids = batch["input_ids"].to(run_device)
         labels = batch["labels"].to(run_device)
+
+        # R8: Multitask — extract aspect_present_labels for loss
+        aspect_present_labels = None
+        if use_multitask:
+            asp_labels = batch.get("aspect_present_labels")
+            if asp_labels is not None:
+                aspect_present_labels = asp_labels.to(run_device)
 
         attention_mask = batch.get("attention_mask")
         if attention_mask is not None:
@@ -269,7 +358,13 @@ def validate(model, dataloader, run_device):
         if outputs.get("bad_batch", False):
             continue
 
-        loss, l_cls = compute_loss(outputs, labels, run_device)
+        # R8: use multitask loss if aspect_present_labels available
+        if use_multitask and aspect_present_labels is not None:
+            loss, l_cls, _ = multi_task_compute_loss(
+                outputs, labels, aspect_present_labels, run_device, class_weights
+            )
+        else:
+            loss, l_cls = compute_loss(outputs, labels, run_device, class_weights)
         if not torch.isfinite(loss):
             continue
 
