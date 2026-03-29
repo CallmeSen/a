@@ -45,17 +45,22 @@ class MultimodalSentimentModel(nn.Module):
         self.llm_hidden_size = llm_wrapper.hidden_size
 
         # Freezing strategy:
-        # - USE_LORA=0: Freeze entire Qwen backbone (avoids OOM on 44GB VRAM).
-        #   Only GatedCrossAttentionAdapter + classifier head train.
-        # - USE_LORA=1: Qwen wrapped in PeftModel → LoRA adapters train (no freeze needed).
-        # The _freeze_backbone flag is set by MultimodalSentimentModel after LoRA is applied.
-        self._freeze_llm_backbone = not USE_LORA
-        if self._freeze_llm_backbone:
-            print("[MultimodalSentimentModel] Qwen backbone frozen — only adapters train (avoids OOM)")
-            for p in llm_wrapper.qwen_base.parameters():
-                p.requires_grad = False
-        else:
-            print("[MultimodalSentimentModel] LoRA active — Qwen backbone unfrozen")
+        # - ALWAYS freeze Qwen backbone to avoid OOM on 44GB VRAM.
+        # - USE_LORA=1: PEFT has already injected LoRA adapters (A,B matrices) into
+        #   frozen Qwen Linear layers. Those LoRA params have requires_grad=True set by
+        #   PEFT and are NOT part of qwen_base.parameters() directly — they live inside
+        #   PeftModel's merged layer wrappers, so they are NOT frozen by this loop.
+        # - USE_LORA=0: Only GatedCrossAttentionAdapter + classifier train.
+        # - The detach() in QwenLMWrapper._make_attn_hook breaks autograd activation memory
+        #   for the frozen backbone in BOTH modes, keeping VRAM low.
+        self._freeze_llm_backbone = True
+        for p in llm_wrapper.qwen_base.parameters():
+            p.requires_grad = False
+        # When LoRA is active, LoRA A/B matrices need gradients through backbone.
+        # Tell the hook to NOT detach so gradients flow to LoRA params.
+        if USE_LORA:
+            llm_wrapper.set_force_detach(True)
+        print("[MultimodalSentimentModel] Qwen backbone frozen — trainable params managed by PEFT (LoRA) or adapters")
 
         # Gradient safety hooks for trainable params: replace NaN/Inf grads with 0.
         # masked_fill_ is DDP-compatible because it modifies the grad in-place.

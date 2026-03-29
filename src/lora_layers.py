@@ -23,23 +23,30 @@ QEN2_LORA_TARGETS = ["q_proj", "v_proj"]
 
 
 def apply_lora_to_llm(
-    llm_base,
+    llm_for_clm,
     r: int = 16,
     alpha: int = 32,
     dropout: float = 0.05,
 ) -> nn.Module:
     """
-    Apply LoRA to the Qwen backbone (hybrid: LoRA + GatedCrossAttentionAdapter).
+    Apply LoRA to the Qwen ForCausalLM (hybrid: LoRA + GatedCrossAttentionAdapter).
+
+    Freeze backbone FIRST so PEFT automatically sets requires_grad=True only on LoRA params.
+    This avoids the need to manually manage requires_grad after get_peft_model().
 
     Args:
-        llm_base: The Qwen base model (Qwen2Model)
+        llm_for_clm: The Qwen ForCausalLM model (will be wrapped in PeftModel)
         r: LoRA rank (higher = more params, better quality)
         alpha: LoRA alpha (scaling factor = alpha / r)
         dropout: LoRA dropout probability
 
     Returns:
-        PeftModel wrapping llm_base with LoRA adapters
+        PeftModel wrapping llm_for_clm with LoRA adapters (LoRA params have requires_grad=True)
     """
+    # Freeze backbone BEFORE PEFT injects LoRA → PEFT sets requires_grad=True only on LoRA params
+    for p in llm_for_clm.parameters():
+        p.requires_grad = False
+
     lora_config = LoraConfig(
         r=r,
         lora_alpha=alpha,
@@ -50,14 +57,13 @@ def apply_lora_to_llm(
     )
 
     print(f"[LoRA] Applying LoRA: r={r}, alpha={alpha}, targets={QEN2_LORA_TARGETS}")
-    before = sum(p.numel() for p in llm_base.parameters() if p.requires_grad)
-    print(f"[LoRA] Trainable params before: {before:,}")
+    print(f"[LoRA] Backbone frozen — only LoRA params train")
 
-    llm_with_lora = get_peft_model(llm_base, lora_config)
+    llm_with_lora = get_peft_model(llm_for_clm, lora_config)
 
     after_trainable = sum(p.numel() for p in llm_with_lora.parameters() if p.requires_grad)
     after_total = sum(p.numel() for p in llm_with_lora.parameters())
-    print(f"[LoRA] Trainable params after:  {after_trainable:,} / {after_total:,} "
+    print(f"[LoRA] Trainable params: {after_trainable:,} / {after_total:,} "
           f"({100 * after_trainable / after_total:.2f}%)")
 
     return llm_with_lora

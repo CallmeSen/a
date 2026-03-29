@@ -167,7 +167,16 @@ class QwenLMWrapper(nn.Module):
     ):
         super().__init__()
         self.qwen_lm = qwen_for_casual_lm
-        self.qwen_base = self.qwen_lm.model  # Qwen2Model
+        # qwen_for_casual_lm may be:
+        #   - Qwen2ForCausalLM (no LoRA): qwen_lm.model = Qwen2Model (has embed_tokens)
+        #   - PeftModel wrapping ForCausalLM (LoRA): qwen_lm.model = Qwen2ForCausalLM (no embed_tokens)
+        #       → qwen_lm.model.model = Qwen2Model (has embed_tokens)
+        # Traverse both cases safely to find Qwen2Model.
+        base = self.qwen_lm
+        while hasattr(base, 'model') and not hasattr(base, 'embed_tokens'):
+            base = base.model
+        self.qwen_base = base if hasattr(base, 'embed_tokens') else self.qwen_lm.model
+        self._embed_tokens = self.qwen_base.embed_tokens
         self.num_layers = num_layers
         self.hidden_size = hidden_size
         self.num_visual_tokens = num_visual_tokens
@@ -187,6 +196,11 @@ class QwenLMWrapper(nn.Module):
         self._hooks: List[torch.utils.hooks.RemovableHandle] = []
         self._visual_tokens: Optional[torch.Tensor] = None
         self._visual_mask: Optional[torch.Tensor] = None
+        self._force_detach = False  # Override: never detach when LoRA is active (LoRA params need gradients)
+
+    def set_force_detach(self, value: bool):
+        """Override detach behavior — call with False when LoRA is active."""
+        self._force_detach = value
 
     def _make_attn_hook(self, layer_idx: int, backbone_frozen: bool):
         """Hook on self.self_attn output to inject gated visual cross-attention.
@@ -211,7 +225,9 @@ class QwenLMWrapper(nn.Module):
             # CRITICAL: detach() breaks autograd graph for frozen backbone.
             # PyTorch will NOT store activation memory for this layer's computation.
             # Adapter output is added back — its gradient flows via trainable params.
-            if backbone_frozen:
+            # NOTE: Never detach when LoRA is active — LoRA A/B params need gradients flowing
+            # through the backbone's attention outputs to update correctly.
+            if backbone_frozen and not self._force_detach:
                 attn_output = attn_output.detach()
 
             if self._visual_tokens is None:
@@ -268,7 +284,7 @@ class QwenLMWrapper(nn.Module):
         self._visual_tokens = visual_tokens
         self._visual_mask = visual_mask
 
-        inputs_embeds = self.qwen_base.embed_tokens(text_input_ids)
+        inputs_embeds = self._embed_tokens(text_input_ids)
         # Cast to bf16 to match Qwen model dtype (COMPUTE_DTYPE = bfloat16).
         # GatedCrossAttentionAdapter weights are float32 but autocast handles promotion.
         inputs_embeds = inputs_embeds.to(self.qwen_base.dtype)

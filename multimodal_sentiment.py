@@ -98,6 +98,7 @@ from src.config import (
     LORA_R,
     LORA_ALPHA,
     LORA_DROPOUT,
+    LORA_LR,
 )
 
 
@@ -129,17 +130,19 @@ def main():
         f"pad_token={tokenizer.pad_token} (id={tokenizer.pad_token_id})"
     )
 
-    # 2b) Apply LoRA to Qwen backbone if USE_LORA=1
+    # 2b) Apply LoRA to Qwen ForCausalLM if USE_LORA=1
+    # NOTE: PEFT wraps llm_for_clm but keeps llm_for_clm.model = original Qwen2Model.
+    # QwenLMWrapper traverses qwen_for_casual_lm.model.model... to find Qwen2Model
+    # and uses its embed_tokens. LoRA params are injected into Qwen2Model layers.
     if USE_LORA:
         print(f"\n[LoRA] Applying LoRA: r={LORA_R}, alpha={LORA_ALPHA}")
-        llm_base = apply_lora_to_llm(
-            llm_base,
+        llm_for_clm = apply_lora_to_llm(
+            llm_for_clm,
             r=LORA_R,
             alpha=LORA_ALPHA,
             dropout=LORA_DROPOUT,
         )
-        # llm_base is now a PeftModel wrapping Qwen2Model
-        print_lora_summary(llm_base)
+        print_lora_summary(llm_for_clm)
 
     # 3) Build vision + projector
     vision_encoder = VisionEncoder(
@@ -195,11 +198,12 @@ def main():
     val_loader_local = _build_val_loader(dataset_splits, tokenizer)
     test_loader_local = _build_test_loader(dataset_splits, tokenizer)
 
-    # 8) Optimizer + scheduler
+    # 8) Optimizer + scheduler — use higher LR for LoRA params (r5 = 5x base LR)
     optimizer, trainable_params = setup_optimizer(
         sentiment_model,
         LEARNING_RATE,
         WEIGHT_DECAY,
+        lora_lr=LORA_LR,
     )
 
     steps_per_epoch = math.ceil(len(train_loader_local) / GRADIENT_ACCUMULATION_STEPS)

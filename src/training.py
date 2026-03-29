@@ -47,11 +47,12 @@ class LazyLambdaScheduler:
         return list(self._last_lr)
 
 
-def setup_optimizer(sentiment_model, learning_rate, weight_decay, vision_lr_ratio=0.1):
-    """Setup AdamW optimizer with separate LR for vision encoder.
+def setup_optimizer(sentiment_model, learning_rate, weight_decay, vision_lr_ratio=0.1, lora_lr=None):
+    """Setup AdamW optimizer with separate LR for vision encoder and LoRA params.
 
     vision_lr_ratio: multiplier applied to learning_rate for vision_encoder params.
     Default 0.1 means vision gets LR = learning_rate * 0.1.
+    lora_lr: separate learning rate for LoRA parameters (if None, uses learning_rate).
     """
     trainable_params = [
         param for _, param in sentiment_model.named_parameters()
@@ -62,14 +63,21 @@ def setup_optimizer(sentiment_model, learning_rate, weight_decay, vision_lr_rati
         p for n, p in sentiment_model.named_parameters()
         if p.requires_grad and "vision_encoder" in n
     ]
+    lora_params = [
+        p for n, p in sentiment_model.named_parameters()
+        if p.requires_grad and ("lora_" in n or "peft" in n.lower())
+    ]
     other_params = [
         p for n, p in sentiment_model.named_parameters()
         if p.requires_grad and "vision_encoder" not in n
+        and "lora_" not in n and "peft" not in n.lower()
     ]
 
     param_groups = [{"params": other_params, "lr": learning_rate}]
     if vision_params:
         param_groups.append({"params": vision_params, "lr": learning_rate * vision_lr_ratio})
+    if lora_params:
+        param_groups.append({"params": lora_params, "lr": lora_lr or learning_rate * 5})
 
     optimizer = torch.optim.AdamW(
         param_groups,
