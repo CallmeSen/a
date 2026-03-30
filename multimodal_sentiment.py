@@ -158,7 +158,7 @@ def main():
     # 4) PerceiverResampler
     perceiver_resampler = PerceiverResampler(
         vision_dim=llm_hidden_size,
-        num_queries=16,
+        num_queries=64,
         num_heads=8,
         expansion=4,
     ).to(device)
@@ -169,7 +169,7 @@ def main():
         qwen_for_casual_lm=llm_for_clm,
         num_layers=num_layers,
         hidden_size=llm_hidden_size,
-        num_visual_tokens=16 * MAX_IMAGES,
+        num_visual_tokens=64 * MAX_IMAGES,
         use_adapter_layers=use_adapter_layers,
     ).to(device)
 
@@ -185,8 +185,11 @@ def main():
     ).to(device)
 
     # R8: Wrap with MultitaskSentimentModel if USE_MULTITASK=1
+    # Note: Soft gate and aspect detection auxiliary head were removed
+    # (caused gradient conflicts and no useful signal).
+    # MultitaskSentimentModel now wraps the base model without modifications.
     if USE_MULTITASK:
-        print("\n[R8] Wrapping model with MultitaskSentimentModel (auxiliary aspect detection)")
+        print("\n[R8] Wrapping model with MultitaskSentimentModel")
         sentiment_model = MultitaskSentimentModel(sentiment_model).to(device)
 
     total_params, trainable_params_total = sentiment_model.get_trainable_params()
@@ -382,26 +385,22 @@ def main():
         demo_comment = demo_sample["comment"]
         demo_true_labels = demo_sample["raw_labels"]
 
-        # Pick first labelled aspect for demo
-        demo_aspect_name = ASPECT_LABELS[0]
-        for aid, label in enumerate(demo_sample["parsed_labels"]):
-            demo_aspect_name = label[0]
-            break
-
         print(f"\n=== Demo Inference ===")
         print(f"Comment: {demo_comment}")
-        print(f"Aspect: {demo_aspect_name}")
         print(f"True labels: {demo_true_labels}")
+        print(f"\n--- Aspect-level predictions ---")
 
-        result = predict_aspect_sentiment(
-            demo_image_path,
-            demo_comment,
-            demo_aspect_name,
-            sentiment_model,
-            tokenizer,
-        )
-        print(f"Predicted class: {result['predicted_label']}")
-        print(f"Probabilities: {result['probabilities']}")
+        for demo_aspect_name in ASPECT_LABELS:
+            result = predict_aspect_sentiment(
+                demo_image_path,
+                demo_comment,
+                demo_aspect_name,
+                sentiment_model,
+                tokenizer,
+            )
+            print(f"\nAspect: {demo_aspect_name}")
+            print(f"  Predicted: {result['predicted_label']}")
+            print(f"  Probabilities: {result['probabilities']}")
 
 
 def _build_train_loader(dataset_splits, tokenizer):

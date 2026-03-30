@@ -9,6 +9,54 @@ from sklearn.metrics import f1_score
 from .config import COMPUTE_DTYPE
 
 
+# --- Focal Loss with optional label smoothing ---
+def focal_loss_with_smoothing(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    class_weights: torch.Tensor = None,
+    alpha: float = 0.25,
+    gamma: float = 2.0,
+    label_smoothing: float = 0.1,
+) -> torch.Tensor:
+    """Focal loss + label smoothing for extreme class imbalance.
+
+    - gamma: focusing parameter — down-weights easy examples (high p_t)
+    - alpha: class balancing weight for the rare (positive) classes
+    - label_smoothing: soft targets to prevent overconfidence
+    """
+    num_classes = logits.size(-1)
+    log_probs = F.log_softmax(logits.float(), dim=-1)
+    probs = torch.exp(log_probs)
+
+    # One-hot with smoothing
+    if label_smoothing > 0:
+        targets_smooth = torch.zeros_like(log_probs).scatter_(
+            1, targets.unsqueeze(1), 1.0
+        )
+        targets_smooth = targets_smooth * (1 - label_smoothing) + label_smoothing / num_classes
+    else:
+        targets_onehot = torch.zeros_like(log_probs).scatter_(
+            1, targets.unsqueeze(1), 1.0
+        )
+        targets_smooth = targets_onehot
+
+    # Focal weight: (1 - p_t)^gamma
+    p_t = (targets_smooth * probs).sum(dim=-1).clamp(min=1e-7, max=1.0)
+    focal_weight = (1 - p_t) ** gamma
+
+    # CE per sample
+    ce = -(targets_smooth * log_probs).sum(dim=-1)
+
+    # Alpha balancing (up-weight rare classes; down-weight "None")
+    if class_weights is not None:
+        sample_weights = class_weights[targets]
+        loss = alpha * focal_weight * ce * sample_weights
+    else:
+        loss = alpha * focal_weight * ce
+
+    return loss.mean()
+
+
 class LazyLambdaScheduler:
     def __init__(self, optimizer, lr_lambda):
         self.optimizer = optimizer
@@ -88,20 +136,21 @@ def setup_optimizer(sentiment_model, learning_rate, weight_decay, vision_lr_rati
 
 
 def compute_loss(outputs, labels, run_device, class_weights=None):
-    """Single-head 4-class CrossEntropy loss with optional class weights.
+    """Single-head 4-class Focal loss with optional class weights.
 
     Model output shape: logits [B, 1, 1, 4].
-    Squeeze leading singleton dims so cross_entropy receives [B, 4].
+    Squeeze leading singleton dims so focal_loss receives [B, 4].
     """
     logits = outputs["logits"]
-    # Handle [B, 1, 1, 4] -> squeeze to [B, 4]
     while logits.dim() > 2:
-        logits = logits.squeeze(-2)  # remove inner dims until [B, 4]
-    loss = F.cross_entropy(
-        logits.float(),              # [B, 4]
-        labels.reshape(-1).long(),   # [B]
-        weight=class_weights,
-        reduction="mean",
+        logits = logits.squeeze(-2)
+    loss = focal_loss_with_smoothing(
+        logits.float(),
+        labels.reshape(-1).long(),
+        class_weights=class_weights,
+        alpha=1.0,
+        gamma=2.0,
+        label_smoothing=0.1,
     )
     return loss, loss.detach()
 
@@ -144,40 +193,27 @@ def _optimizer_step(
 
 
 def multi_task_compute_loss(outputs, labels, aspect_present_labels, run_device, class_weights=None):
-    """R8: Auxiliary multi-task loss = sentiment CE + 0.5 * aspect BCE.
+    """Single-task Focal loss (aspect detection auxiliary head removed).
 
-    - Sentiment loss: computed on all samples (but gated by aspect via soft gate in forward)
-    - Aspect loss: binary CE on aspect_present_labels (auxiliary task)
+    The original soft-gate + aspect detection auxiliary task was removed because:
+    1. Soft gate distorted all logits from epoch 0 (aspect_probs≈0.5 at init)
+    2. Aspect name is already in input text, making the task redundant
+    3. Competing gradients between auxiliary and main task degraded performance
 
-    Returns:
-        total_loss, sentiment_loss, aspect_loss
+    Now this function is identical to compute_loss() — kept for API compatibility.
     """
     logits = outputs["logits"]
     while logits.dim() > 2:
         logits = logits.squeeze(-2)
-
-    aspect_logits = outputs.get("aspect_logits")  # [B, 1]
-    B = labels.size(0)
-
-    # Task 1: Sentiment classification (main loss)
-    sentiment_loss = F.cross_entropy(
-        logits.float(), labels.reshape(-1).long(),
-        weight=class_weights,
-        reduction="mean",
+    loss = focal_loss_with_smoothing(
+        logits.float(),
+        labels.reshape(-1).long(),
+        class_weights=class_weights,
+        alpha=1.0,
+        gamma=2.0,
+        label_smoothing=0.1,
     )
-
-    # Task 2: Aspect detection (auxiliary, weight=0.5)
-    if aspect_logits is not None and aspect_present_labels is not None:
-        aspect_loss = F.binary_cross_entropy_with_logits(
-            aspect_logits.squeeze(-1),
-            aspect_present_labels.float(),
-            reduction="mean",
-        )
-        # Combined: L = sentiment_loss + 0.5 * aspect_loss
-        total_loss = sentiment_loss + 0.5 * aspect_loss
-        return total_loss, sentiment_loss, aspect_loss
-
-    return sentiment_loss, sentiment_loss, torch.tensor(0.0, device=run_device)
+    return loss, loss, torch.tensor(0.0, device=run_device)
 
 
 def train_epoch(
