@@ -176,6 +176,11 @@ class SentimentDataset(Dataset):
         return None
 
     def _prepare_samples(self) -> list:
+        """Prepare flattened samples: each entry is one (raw_sample, aspect) pair.
+
+        This ensures WeightedRandomSampler weights each aspect independently,
+        rather than up/down-sampling entire samples based on just one aspect.
+        """
         valid_samples = []
         for item in self.data:
             if not item.get("list_img") or len(item["list_img"]) == 0:
@@ -203,27 +208,35 @@ class SentimentDataset(Dataset):
             if not valid_img_paths:
                 continue
 
-            valid_samples.append(
-                {
-                    "comment": item.get("comment", ""),
-                    "image_paths": valid_img_paths,
-                    "parsed_labels": parsed_labels,
-                    "raw_labels": raw_labels,
-                    "aspect_present": {aspect: any(a == aspect for a, _ in parsed_labels) for aspect in ASPECT_LABELS},
-                }
-            )
+            # Track which aspects are mentioned in this sample
+            mentioned_aspects = {a for a, _ in parsed_labels}
+
+            # Create one entry PER ASPECT (flattened, not per-sample)
+            for aspect_name in ASPECT_LABELS:
+                aspect_sentiment = "None"
+                aspect_present = 0
+                for a, s in parsed_labels:
+                    if a == aspect_name:
+                        aspect_sentiment = s
+                        aspect_present = 1
+                        break
+
+                valid_samples.append(
+                    {
+                        "comment": item.get("comment", ""),
+                        "image_paths": valid_img_paths,
+                        "aspect_name": aspect_name,
+                        "aspect_id": ASPECT2ID[aspect_name],
+                        "sentiment": aspect_sentiment,
+                        "label": _SENTIMENT_TO_CLASS.get(aspect_sentiment, 0),
+                        "aspect_present": aspect_present,
+                    }
+                )
 
         return valid_samples
 
     def __len__(self):
         return len(self.samples)
-
-    def _labels_to_tensor(self, parsed_labels: list) -> torch.Tensor:
-        labels = torch.zeros(self.num_aspects, dtype=torch.long)
-        for aspect, sentiment in parsed_labels:
-            a_id = self.aspect2id[aspect]
-            labels[a_id] = _SENTIMENT_TO_CLASS[sentiment]
-        return labels
 
     def __getitem__(self, idx: int) -> dict:
         sample = self.samples[idx]
@@ -234,15 +247,16 @@ class SentimentDataset(Dataset):
             image_tensors.append(self.transform(image))
 
         pixel_values = torch.stack(image_tensors)
-        labels = self._labels_to_tensor(sample["parsed_labels"])
+        label = sample["label"]
 
         return {
             "pixel_values": pixel_values,
             "num_images": len(image_tensors),
-            "labels": labels,
+            "label": label,
+            "aspect_name": sample["aspect_name"],
+            "aspect_present": sample["aspect_present"],
             "comment": sample["comment"],
             "image_paths": sample["image_paths"],
-            "aspect_present": sample["aspect_present"],
         }
 
 
@@ -253,51 +267,36 @@ def _build_aspect_text(comment: str, aspect_name: str) -> str:
 
 def make_collate_fn(tokenizer_ref):
     def collate_fn(batch):
-        # Expand each sample into 6 individual samples (1 per aspect).
-        # Each raw sample contains text+images+all aspect labels.
-        # After expansion: N raw samples → N × 6 samples (1 aspect each).
-        expanded_items = []
-        for item in batch:
-            pixel_values = item["pixel_values"]   # [M, C, H, W]
-            num_images = item["num_images"]
-            labels = item["labels"]               # [6]
-            comment = item["comment"]
-            image_paths = item["image_paths"]
-
-            for aid in range(labels.size(0)):
-                aspect_name = ID2ASPECT[aid]
-                aspect_texts = _build_aspect_text(comment, aspect_name)
-                # R8: aspect_present = 1 if mentioned in dataset, 0 if "None"
-                aspect_present_val = 1 if item["aspect_present"].get(aspect_name, False) else 0
-                expanded_items.append({
-                    "pixel_values": pixel_values,
-                    "num_images": num_images,
-                    "label": labels[aid].item(),   # scalar label for this aspect
-                    "aspect_present": aspect_present_val,  # R8: binary aux label
-                    "aspect_text": aspect_texts,
-                    "comment": comment,
-                    "image_paths": image_paths,
-                })
-
-        # Determine max images across all expanded items
-        image_counts = [item["num_images"] for item in expanded_items]
-        max_imgs = max(image_counts)
-
-        # Pad pixel_values to [max_imgs, C, H, W]
+        # Each item in batch is already one (raw_sample, aspect) pair — no expansion needed.
+        # This ensures WeightedRandomSampler weights each aspect independently.
         padded_pixels = []
-        for item in expanded_items:
+        image_counts = []
+        aspect_texts = []
+        aspect_labels = []
+        aspect_present_labels = []
+
+        for item in batch:
             pvs = item["pixel_values"]
+            padded_pixels.append(pvs)
+            image_counts.append(item["num_images"])
+            aspect_texts.append(_build_aspect_text(item["comment"], item["aspect_name"]))
+            aspect_labels.append(item["label"])
+            aspect_present_labels.append(item["aspect_present"])
+
+        # Pad pixel_values
+        max_imgs = max(i.shape[0] for i in padded_pixels)
+        padded = []
+        for pvs in padded_pixels:
             n = pvs.shape[0]
             if n < max_imgs:
                 pad = torch.zeros(max_imgs - n, *pvs.shape[1:], dtype=pvs.dtype)
-                padded_pixels.append(torch.cat([pvs, pad], dim=0))
+                padded.append(torch.cat([pvs, pad], dim=0))
             else:
-                padded_pixels.append(pvs)
-        pixel_values_batch = torch.stack(padded_pixels)  # [B, max_imgs, C, H, W]
+                padded.append(pvs)
+        pixel_values_batch = torch.stack(padded)
         image_counts_tensor = torch.tensor(image_counts, dtype=torch.long)
 
-        # Tokenize aspect-prompted texts
-        aspect_texts = [item["aspect_text"] for item in expanded_items]
+        # Tokenize
         text_inputs = tokenizer_ref(
             aspect_texts,
             padding=True,
@@ -306,22 +305,13 @@ def make_collate_fn(tokenizer_ref):
             return_tensors="pt",
         )
 
-        # Labels: 1 aspect per sample → [B]
-        aspect_labels = [item["label"] for item in expanded_items]
-        aspect_labels_tensor = torch.tensor(aspect_labels, dtype=torch.long)
-
-        # R8: Aspect presence labels for auxiliary task [B]
-        aspect_present_labels = torch.tensor(
-            [item["aspect_present"] for item in expanded_items], dtype=torch.long
-        )
-
         return {
             "pixel_values": pixel_values_batch,
             "image_counts": image_counts_tensor,
             "input_ids": text_inputs.input_ids,
             "attention_mask": text_inputs.attention_mask,
-            "labels": aspect_labels_tensor,          # [B] — sentiment class
-            "aspect_present_labels": aspect_present_labels,  # [B] — R8: binary
+            "labels": torch.tensor(aspect_labels, dtype=torch.long),
+            "aspect_present_labels": torch.tensor(aspect_present_labels, dtype=torch.long),
         }
 
     return collate_fn
@@ -343,32 +333,33 @@ def build_dataloaders(dataset_splits: Dict[str, list], aspect2id: dict, tokenize
 
 def build_weighted_sampler(dataset: SentimentDataset, minority_upsample_ratio: float = 4.0) -> "torch.utils.data.WeightedRandomSampler":
     """
-    WeightedRandomSampler that oversamples samples with minority sentiment labels.
+    WeightedRandomSampler that oversamples minority sentiment aspects.
 
-    R7: For class imbalance — samples containing Positive/Negative/Neutral aspects
-    (not "None" only) are upsampled by `minority_upsample_ratio`.
+    R8 fix: Dataset now returns one (raw_sample, aspect) pair per index.
+    Sampler weights each aspect independently by its sentiment label.
+    - "None" (label=0): base weight = 1.0
+    - Negative/Neutral/Positive (label=1/2/3): upsampled by minority_upsample_ratio
 
-    The sampler operates on raw dataset items (before aspect expansion), so each
-    item contributes weight based on whether it has any sentiment aspect.
-
-    Args:
-        dataset: SentimentDataset
-        minority_upsample_ratio: multiplier for samples with non-None sentiment
-    Returns:
-        WeightedRandomSampler instance (or None if all samples are equal weight)
+    This is correct because each dataset index is exactly one aspect.
     """
     import torch.utils.data
+    from collections import Counter
+
+    # Count label distribution
+    label_counts = Counter()
+    for sample in dataset.samples:
+        label_counts[sample["label"]] += 1
+
+    total = len(dataset.samples)
     weights = []
     for sample in dataset.samples:
-        labels = sample["parsed_labels"]
-        # If any aspect has sentiment (not "None") → minority → upsampled
-        has_sentiment = any(sent != "None" for _, sent in labels)
-        weight = minority_upsample_ratio if has_sentiment else 1.0
-        weights.append(weight)
+        label = sample["label"]
+        if label == 0:  # "None" class
+            weights.append(1.0)
+        else:           # Negative, Neutral, Positive
+            weights.append(minority_upsample_ratio)
 
-    total = sum(weights)
-    # Normalize to valid probability distribution
-    probabilities = [w / total for w in weights]
+    probabilities = [w / sum(weights) for w in weights]
 
     num_samples = len(weights)
     sampler = torch.utils.data.WeightedRandomSampler(
@@ -376,6 +367,7 @@ def build_weighted_sampler(dataset: SentimentDataset, minority_upsample_ratio: f
         num_samples=num_samples,
         replacement=True,
     )
-    print(f"[DATA] WeightedRandomSampler: {num_samples} samples, "
+    print(f"[DATA] WeightedRandomSampler: {num_samples} samples (1 per aspect), "
           f"minority_upsample_ratio={minority_upsample_ratio}")
+    print(f"[DATA] Label distribution: {dict(sorted(label_counts.items()))}")
     return sampler

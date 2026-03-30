@@ -18,8 +18,9 @@ from peft import (
 )
 
 
-# LoRA target modules for Qwen2.5 (q_proj, v_proj in self-attention)
-QEN2_LORA_TARGETS = ["q_proj", "v_proj"]
+# LoRA target modules for Qwen2.5: q_proj, v_proj, o_proj in self-attention.
+# o_proj added in R8 to increase LoRA capacity for multimodal fusion learning.
+QEN2_LORA_TARGETS = ["q_proj", "v_proj", "o_proj"]
 
 
 def apply_lora_to_llm(

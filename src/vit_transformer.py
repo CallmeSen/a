@@ -19,30 +19,27 @@ class VisionEncoder(nn.Module):
         print(f"Loading Swin Transformer V2: {model_name} (torch_dtype={self.torch_dtype})")
         self.model = AutoModel.from_pretrained(model_name, torch_dtype=torch.float32).to(run_device)
 
-        # Unfreeze last 2 encoder stages (stages 2 and 3) for task-specific visual features.
-        # Stages 0-1 remain frozen to preserve pretrained general-purpose representations.
-        # Stages 2-3 train with a lower learning rate (managed by setup_optimizer).
+        # Unfreeze ALL stages for domain-specific visual feature learning.
+        # SwinV2-Base pretrained on ImageNet does not capture hotel-specific features
+        # (pool views, room decor, food presentation, lobby aesthetics).
+        # With vision_lr_ratio=0.1 in setup_optimizer, the low LR prevents
+        # pretrained representations from being corrupted too quickly.
         frozen_count = 0
         trainable_count = 0
-        for name, param in self.model.named_parameters():
-            if "encoder.layers.2" in name or "encoder.layers.3" in name:
-                param.requires_grad = True
-                trainable_count += 1
-            else:
-                param.requires_grad = False
-                frozen_count += 1
+        for param in self.model.parameters():
+            param.requires_grad = True
+            trainable_count += 1
 
-        # Keep in eval mode so BatchNorm/rms_norm statistics are used as-is.
-        # This prevents train mode from corrupting pretrained BN statistics.
-        self.model.eval()
-        print(f"Vision encoder: {frozen_count} params frozen (stages 0-1), "
-              f"{trainable_count} params trainable (stages 2-3)")
+        # Use train mode so all norm layers (LayerNorm, BatchNorm) update their
+        # running statistics during training. This is essential for domain adaptation.
+        self.model.train()
+        print(f"Vision encoder: {trainable_count} params trainable (all stages)")
 
         self.hidden_size = self.model.config.hidden_size
-        with torch.no_grad():
-            dummy = torch.zeros(1, 3, IMAGE_SIZE, IMAGE_SIZE, dtype=torch.float32, device=run_device)
-            dummy_out = self.model(pixel_values=dummy).last_hidden_state
-            self.num_patches = dummy_out.shape[1]
+        # Dummy forward in train mode to initialize BatchNorm running stats properly
+        dummy = torch.zeros(1, 3, IMAGE_SIZE, IMAGE_SIZE, dtype=torch.float32, device=run_device)
+        dummy_out = self.model(pixel_values=dummy).last_hidden_state
+        self.num_patches = dummy_out.shape[1]
 
         print(f"Loaded: hidden_size={self.hidden_size}, num_patches={self.num_patches}")
 

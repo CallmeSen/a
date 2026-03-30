@@ -136,10 +136,12 @@ def setup_optimizer(sentiment_model, learning_rate, weight_decay, vision_lr_rati
 
 
 def compute_loss(outputs, labels, run_device, class_weights=None):
-    """Single-head 4-class Focal loss with optional class weights.
+    """Single-head 4-class Focal loss.
 
-    Model output shape: logits [B, 1, 1, 4].
-    Squeeze leading singleton dims so focal_loss receives [B, 4].
+    NOTE: class_weights are intentionally NOT applied in the loss function.
+    WeightedRandomSampler already handles class imbalance by oversampling minority
+    samples at the dataset level. Applying class_weights in the loss on top of
+    sampler oversampling causes double-weighting which destabilizes training.
     """
     logits = outputs["logits"]
     while logits.dim() > 2:
@@ -147,10 +149,10 @@ def compute_loss(outputs, labels, run_device, class_weights=None):
     loss = focal_loss_with_smoothing(
         logits.float(),
         labels.reshape(-1).long(),
-        class_weights=class_weights,
+        class_weights=None,
         alpha=1.0,
-        gamma=2.0,
-        label_smoothing=0.1,
+        gamma=1.0,
+        label_smoothing=0.0,
     )
     return loss, loss.detach()
 
@@ -185,7 +187,7 @@ def _optimizer_step(
         return True
 
     if trainable_params:
-        torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=5.0)
     optimizer.step()
     scheduler.step()
     optimizer.zero_grad(set_to_none=True)
@@ -195,12 +197,8 @@ def _optimizer_step(
 def multi_task_compute_loss(outputs, labels, aspect_present_labels, run_device, class_weights=None):
     """Single-task Focal loss (aspect detection auxiliary head removed).
 
-    The original soft-gate + aspect detection auxiliary task was removed because:
-    1. Soft gate distorted all logits from epoch 0 (aspect_probs≈0.5 at init)
-    2. Aspect name is already in input text, making the task redundant
-    3. Competing gradients between auxiliary and main task degraded performance
-
-    Now this function is identical to compute_loss() — kept for API compatibility.
+    NOTE: class_weights intentionally omitted — sampler handles imbalance.
+    See compute_loss() for details.
     """
     logits = outputs["logits"]
     while logits.dim() > 2:
@@ -208,10 +206,10 @@ def multi_task_compute_loss(outputs, labels, aspect_present_labels, run_device, 
     loss = focal_loss_with_smoothing(
         logits.float(),
         labels.reshape(-1).long(),
-        class_weights=class_weights,
+        class_weights=None,
         alpha=1.0,
-        gamma=2.0,
-        label_smoothing=0.1,
+        gamma=1.0,
+        label_smoothing=0.0,
     )
     return loss, loss, torch.tensor(0.0, device=run_device)
 

@@ -383,11 +383,11 @@ def main():
         demo_sample = demo_test.samples[0]
         demo_image_path = demo_sample["image_paths"][0]
         demo_comment = demo_sample["comment"]
-        demo_true_labels = demo_sample["raw_labels"]
+        demo_true_label = demo_sample["sentiment"]
 
         print(f"\n=== Demo Inference ===")
         print(f"Comment: {demo_comment}")
-        print(f"True labels: {demo_true_labels}")
+        print(f"True label: {demo_true_label}")
         print(f"\n--- Aspect-level predictions ---")
 
         for demo_aspect_name in ASPECT_LABELS:
@@ -416,7 +416,7 @@ def _build_train_loader(dataset_splits, tokenizer):
 
     if USE_WEIGHTED_SAMPLER:
         # R7: WeightedRandomSampler — oversamples minority sentiment samples
-        sampler = build_weighted_sampler(train_dataset, minority_upsample_ratio=4.0)
+        sampler = build_weighted_sampler(train_dataset, minority_upsample_ratio=2.0)
         return DataLoader(
             train_dataset,
             batch_size=BATCH_SIZE,
