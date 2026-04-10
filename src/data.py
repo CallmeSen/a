@@ -352,12 +352,15 @@ def build_weighted_sampler(dataset: SentimentDataset, minority_upsample_ratio: f
 
     total = len(dataset.samples)
     weights = []
+    # Per-class weights based on inverse frequency.
+    # Negative (830) vs None (8606): 10.4x → weight 10.0
+    # Neutral (1401) vs None: 6.1x → weight 6.0
+    # Positive (6419) vs None: 1.3x → weight 1.5
+    # None: baseline weight 1.0
+    class_ratio = {0: 1.0, 1: 10.0, 2: 6.0, 3: 1.5}
     for sample in dataset.samples:
         label = sample["label"]
-        if label == 0:  # "None" class
-            weights.append(1.0)
-        else:           # Negative, Neutral, Positive
-            weights.append(minority_upsample_ratio)
+        weights.append(class_ratio.get(label, 1.0))
 
     probabilities = [w / sum(weights) for w in weights]
 

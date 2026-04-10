@@ -1,4 +1,4 @@
-"""LoRA integration for Multimodal Sentiment Analysis (Qwen2.5-7B-Instruct backbone).
+"""LoRA integration for Multimodal Sentiment Analysis (Qwen3-4B-Instruct backbone).
 
 Supports LoRA fine-tuning on the Qwen backbone. The GatedCrossAttentionAdapter
 from QwenLMWrapper remains active alongside LoRA.
@@ -18,9 +18,12 @@ from peft import (
 )
 
 
-# LoRA target modules for Qwen2.5: q_proj, v_proj, o_proj in self-attention.
-# o_proj added in R8 to increase LoRA capacity for multimodal fusion learning.
-QEN2_LORA_TARGETS = ["q_proj", "v_proj", "o_proj"]
+# LoRA target modules for Qwen3: q_proj, v_proj, o_proj in self-attention
+# plus gate_proj, up_proj, down_proj in the FFN (added for MABSA cross-modal reasoning).
+QEN2_LORA_TARGETS = [
+    "q_proj", "v_proj", "o_proj",
+    "gate_proj", "up_proj", "down_proj",
+]
 
 
 def apply_lora_to_llm(

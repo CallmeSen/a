@@ -1,4 +1,4 @@
-"""Hook-based LLM wrapper for Qwen2.5-7B-Instruct.
+"""Hook-based LLM wrapper for Qwen3-4B-Instruct.
 
 Uses forward hooks to inject visual cross-attention at the correct architectural position:
 1. Hook decoder layer after self-attention to inject visual info via gated residual.
@@ -46,8 +46,8 @@ class GatedCrossAttentionAdapter(nn.Module):
         self.o_proj = nn.Linear(hidden_size, hidden_size, bias=False)
         self.rms_norm = RMSNorm(hidden_size)
 
-        # sigmoid(-2) ~ 0.12: visual injection ~12% from epoch 1, grows as gate trains
-        self.gate = nn.Parameter(torch.tensor(-2.0))
+        # sigmoid(-1) ~ 0.27: visual injection ~27% from epoch 1, grows as gate trains
+        self.gate = nn.Parameter(torch.tensor(-1.0))
 
         self._init_weights()
 
@@ -146,7 +146,7 @@ def compute_qwen_rotary_embeddings(
 
 class QwenLMWrapper(nn.Module):
     """
-    Hook-based wrapper for Qwen2.5.
+    Hook-based wrapper for Qwen3.
 
     Uses hooks on decoder layer self-attention outputs to inject visual cross-attention.
     Position embeddings are computed directly (not via rotary_emb hook) to avoid

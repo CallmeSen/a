@@ -1,9 +1,9 @@
-root@71d3261521137a80:~/a# USE_LORA=1 USE_MULTITASK=1 USE_WEIGHTED_SAMPLER=1 python multimodal_sentiment.py
+root@71d3261521137a80:~/a# USE_MULTITASK=1 USE_LORA=1 USE_WEIGHTED_SAMPLER=1 python multimodal_sentiment.py
 The image processor of type `ViTImageProcessor` is now loaded as a fast processor by default, even if the model checkpoint was saved with a slow processor. This is a breaking change and may produce slightly different outputs. To continue using the slow processor, instantiate this class with `use_fast=False`. 
 Device: cuda
 Compute dtype: torch.bfloat16
 Vision model: microsoft/swinv2-base-patch4-window8-256
-LLM model:    Qwen/Qwen2.5-7B-Instruct
+LLM model:    Qwen/Qwen3-4B-Instruct-2507
 Data dir:     datasets
 Output dir:   output_model
 Loaded 2876 samples from datasets/train.json
@@ -12,32 +12,32 @@ Loaded 1000 samples from datasets/test.json
 [DATA] Class distribution: {'Negative': 830, 'Neutral': 1401, 'None': 8606, 'Positive': 6419}
 [DATA] Class weights: [0.2122, 2.2, 1.3034, 0.2845]
 
-Loading LLM: Qwen/Qwen2.5-7B-Instruct
-[INFO] Special tokens registered: <ASP>=151665, </ASP>=151666
-Loading weights: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 339/339 [00:00<00:00, 9332.91it/s]
-[INFO] Tokenizer vocab size: 151667, embedding resized
-[INFO] LLM base: Qwen2Model, num_layers=28, hidden_size=3584
+Loading LLM: Qwen/Qwen3-4B-Instruct-2507
+[INFO] Special tokens registered: <ASP>=151669, </ASP>=151670
+Loading weights: 100%|█████████████████████████████████| 398/398 [00:00<00:00, 8914.90it/s]
+[INFO] Tokenizer vocab size: 151671, embedding resized
+[INFO] LLM base: Qwen3Model, num_layers=36, hidden_size=2560
 Tokenizer: padding_side=right, pad_token=<|endoftext|> (id=151643)
 
-[LoRA] Applying LoRA: r=32, alpha=64
-[LoRA] Applying LoRA: r=32, alpha=64, targets=['q_proj', 'v_proj', 'o_proj']
+[LoRA] Applying LoRA: r=64, alpha=128
+[LoRA] Applying LoRA: r=64, alpha=128, targets=['q_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']
 [LoRA] Backbone frozen — only LoRA params train
-[LoRA] Trainable params: 16,515,072 / 7,629,285,888 (0.22%)
-[LoRA Summary] Trainable: 16,515,072 / 7,629,285,888 (0.22%)
-trainable params: 16,515,072 || all params: 7,629,285,888 || trainable%: 0.2165
+[LoRA] Trainable params: 123,863,040 / 4,145,652,736 (2.99%)
+[LoRA Summary] Trainable: 123,863,040 / 4,145,652,736 (2.99%)
+trainable params: 123,863,040 || all params: 4,145,652,736 || trainable%: 2.9878
 Loading Swin Transformer V2: microsoft/swinv2-base-patch4-window8-256 (torch_dtype=torch.float32)
-Loading weights: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 471/471 [00:00<00:00, 47511.24it/s]
+Loading weights: 100%|████████████████████████████████| 471/471 [00:00<00:00, 45469.59it/s]
 Vision encoder: 471 params trainable (all stages)
 Loaded: hidden_size=1024, num_patches=64
 [MultimodalSentimentModel] Qwen backbone frozen — trainable params managed by PEFT (LoRA) or adapters
 
 [R8] Wrapping model with MultitaskSentimentModel
 [MultimodalSentimentModel] Qwen backbone frozen — trainable params managed by PEFT (LoRA) or adapters
-[Multitask] Trainable params (515): LoRA + adapters + vision + projector + classifier
-Total parameters: 8,079,810,816
-Trainable parameters: 450,524,928
+[Multitask] Trainable params (599): LoRA + adapters + vision + projector + classifier
+Total parameters: 4,785,920,782
+Trainable parameters: 640,268,046
 Prepared 17256 valid samples
-[DATA] WeightedRandomSampler: 17256 samples (1 per aspect), minority_upsample_ratio=2.0
+[DATA] WeightedRandomSampler: 17256 samples (1 per aspect), minority_upsample_ratio=5.0
 [DATA] Label distribution: {0: 8606, 1: 830, 2: 1401, 3: 6419}
 Prepared 6000 valid samples
 Prepared 6000 valid samples
@@ -46,117 +46,146 @@ Training config:
   LR: 2e-05
   Epochs: 15, Steps/Epoch: 1079, Total: 16185, Warmup: 809
   Grad accumulation: 2
-  Trainable params: 450,524,928 params across 515 tensors
+  Trainable params: 640,268,046 params across 599 tensors
 
 [OK] Sanity forward: logits finite=True
      logits shape=torch.Size([8, 1, 1, 4])
      bad_batch=False
 
 Epoch 1/15
-Training:   0%|                                                                                                                                                                                             | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2157/2157 [19:16<00:00,  1.87it/s, loss=0.3543, cls=0.3543]
-Validating: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 750/750 [02:50<00:00,  4.41it/s]
-Train Loss: 1.5115 (CLS=1.5115)
-Val Loss:   0.8340 (CLS=0.8340)
-Val Macro-F1: 0.3679
-[SAVED] Best model macro-F1=0.3679
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [34:02<00:00,  1.06it/s, loss=0.0938, cls=0.0938]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:35<00:00,  3.48it/s]
+Train Loss: 0.1442 (CLS=0.1442)
+Val Loss:   0.1193 (CLS=0.1193)
+Val Macro-F1: 0.1173
+[SAVED] Best model macro-F1=0.1173
 
 Epoch 2/15
-Training:   0%|                                                                                                                                                                                             | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2157/2157 [19:24<00:00,  1.85it/s, loss=0.7549, cls=0.7549]
-Validating: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 750/750 [02:45<00:00,  4.52it/s]
-Train Loss: 0.6899 (CLS=0.6899)
-Val Loss:   0.5832 (CLS=0.5832)
-Val Macro-F1: 0.4488
-[SAVED] Best model macro-F1=0.4488
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [33:56<00:00,  1.06it/s, loss=0.0639, cls=0.0639]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:29<00:00,  3.58it/s]
+Train Loss: 0.0827 (CLS=0.0827)
+Val Loss:   0.0877 (CLS=0.0877)
+Val Macro-F1: 0.2371
+[SAVED] Best model macro-F1=0.2371
 
 Epoch 3/15
-Training:   0%|                                                                                                                                                                                             | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2157/2157 [21:29<00:00,  1.67it/s, loss=0.4292, cls=0.4292]
-Validating: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 750/750 [03:10<00:00,  3.94it/s]
-Train Loss: 0.6472 (CLS=0.6472)
-Val Loss:   0.5816 (CLS=0.5816)
-Val Macro-F1: 0.4501
-[SAVED] Best model macro-F1=0.4501
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [33:29<00:00,  1.07it/s, loss=0.0296, cls=0.0296]
+Validating: 100%|████████████████████████████████████████| 750/750 [02:53<00:00,  4.33it/s]
+Train Loss: 0.0565 (CLS=0.0565)
+Val Loss:   0.0947 (CLS=0.0947)
+Val Macro-F1: 0.3121
+[SAVED] Best model macro-F1=0.3121
 
 Epoch 4/15
-Training:   0%|                                                                                                                                                                                             | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2157/2157 [20:10<00:00,  1.78it/s, loss=0.8498, cls=0.8498]
-Validating: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 750/750 [02:56<00:00,  4.24it/s]
-Train Loss: 0.6099 (CLS=0.6099)
-Val Loss:   0.6595 (CLS=0.6595)
-Val Macro-F1: 0.3850
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [32:10<00:00,  1.12it/s, loss=0.0297, cls=0.0297]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:01<00:00,  4.12it/s]
+Train Loss: 0.0371 (CLS=0.0371)
+Val Loss:   0.0941 (CLS=0.0941)
+Val Macro-F1: 0.3788
+[SAVED] Best model macro-F1=0.3788
 
 Epoch 5/15
-Training:   0%|                                                                                                                                                                                             | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2157/2157 [20:05<00:00,  1.79it/s, loss=0.2767, cls=0.2767]
-Validating: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 750/750 [02:54<00:00,  4.30it/s]
-Train Loss: 0.5765 (CLS=0.5765)
-Val Loss:   0.6400 (CLS=0.6400)
-Val Macro-F1: 0.4204
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [32:37<00:00,  1.10it/s, loss=0.0173, cls=0.0173]
+Validating: 100%|████████████████████████████████████████| 750/750 [02:59<00:00,  4.17it/s]
+Train Loss: 0.0275 (CLS=0.0275)
+Val Loss:   0.1095 (CLS=0.1095)
+Val Macro-F1: 0.3907
+[SAVED] Best model macro-F1=0.3907
 
 Epoch 6/15
-Training:   0%|                                                                                                                                                                                             | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2157/2157 [19:40<00:00,  1.83it/s, loss=0.4030, cls=0.4030]
-Validating: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 750/750 [02:50<00:00,  4.39it/s]
-Train Loss: 0.5498 (CLS=0.5498)
-Val Loss:   0.6052 (CLS=0.6052)
-Val Macro-F1: 0.4571
-[SAVED] Best model macro-F1=0.4571
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [33:07<00:00,  1.09it/s, loss=0.0077, cls=0.0077]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:22<00:00,  3.71it/s]
+Train Loss: 0.0203 (CLS=0.0203)
+Val Loss:   0.1207 (CLS=0.1207)
+Val Macro-F1: 0.3946
+[SAVED] Best model macro-F1=0.3946
 
 Epoch 7/15
-Training:   0%|                                                                                                                                                                                             | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2157/2157 [19:17<00:00,  1.86it/s, loss=0.5463, cls=0.5463]
-Validating: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 750/750 [02:49<00:00,  4.41it/s]
-Train Loss: 0.5259 (CLS=0.5259)
-Val Loss:   0.5941 (CLS=0.5941)
-Val Macro-F1: 0.4388
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [33:04<00:00,  1.09it/s, loss=0.0108, cls=0.0108]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:03<00:00,  4.09it/s]
+Train Loss: 0.0164 (CLS=0.0164)
+Val Loss:   0.1337 (CLS=0.1337)
+Val Macro-F1: 0.4225
+[SAVED] Best model macro-F1=0.4225
 
 Epoch 8/15
-Training:   0%|                                                                                                                                                                                             | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2157/2157 [19:30<00:00,  1.84it/s, loss=0.7644, cls=0.7644]
-Validating: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 750/750 [02:48<00:00,  4.44it/s]
-Train Loss: 0.5067 (CLS=0.5067)
-Val Loss:   0.5565 (CLS=0.5565)
-Val Macro-F1: 0.4359
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [32:59<00:00,  1.09it/s, loss=0.0051, cls=0.0051]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:21<00:00,  3.72it/s]
+Train Loss: 0.0112 (CLS=0.0112)
+Val Loss:   0.1491 (CLS=0.1491)
+Val Macro-F1: 0.4224
 
 Epoch 9/15
-Training:   0%|                                                                                                                                                                                             | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2157/2157 [19:09<00:00,  1.88it/s, loss=0.6496, cls=0.6496]
-Validating: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 750/750 [02:50<00:00,  4.41it/s]
-Train Loss: 0.4622 (CLS=0.4622)
-Val Loss:   0.6130 (CLS=0.6130)
-Val Macro-F1: 0.4390
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [33:56<00:00,  1.06it/s, loss=0.0067, cls=0.0067]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:14<00:00,  3.85it/s]
+Train Loss: 0.0091 (CLS=0.0091)
+Val Loss:   0.1529 (CLS=0.1529)
+Val Macro-F1: 0.4420
+[SAVED] Best model macro-F1=0.4420
 
 Epoch 10/15
-Training:   0%|                                                                                                                                                                                             | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2157/2157 [19:41<00:00,  1.83it/s, loss=0.3253, cls=0.3253]
-Validating: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 750/750 [02:53<00:00,  4.32it/s]
-Train Loss: 0.4346 (CLS=0.4346)
-Val Loss:   0.6015 (CLS=0.6015)
-Val Macro-F1: 0.4445
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [34:31<00:00,  1.04it/s, loss=0.0029, cls=0.0029]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:28<00:00,  3.60it/s]
+Train Loss: 0.0066 (CLS=0.0066)
+Val Loss:   0.1536 (CLS=0.1536)
+Val Macro-F1: 0.4321
 
 Epoch 11/15
-Training:   0%|                                                                                                                                                                                             | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2157/2157 [19:54<00:00,  1.81it/s, loss=0.1140, cls=0.1140]
-Validating: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 750/750 [02:48<00:00,  4.45it/s]
-Train Loss: 0.4119 (CLS=0.4119)
-Val Loss:   0.6090 (CLS=0.6090)
-Val Macro-F1: 0.4396
-[EARLY STOP] triggered
-Validating: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 750/750 [02:55<00:00,  4.29it/s]
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [34:26<00:00,  1.04it/s, loss=0.0044, cls=0.0044]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:35<00:00,  3.47it/s]
+Train Loss: 0.0049 (CLS=0.0049)
+Val Loss:   0.1753 (CLS=0.1753)
+Val Macro-F1: 0.4440
+[SAVED] Best model macro-F1=0.4440
+
+Epoch 12/15
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [33:00<00:00,  1.09it/s, loss=0.0037, cls=0.0037]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:30<00:00,  3.56it/s]
+Train Loss: 0.0039 (CLS=0.0039)
+Val Loss:   0.1845 (CLS=0.1845)
+Val Macro-F1: 0.4344
+
+Epoch 13/15
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|█████████████| 2157/2157 [1:19:54<00:00,  2.22s/it, loss=0.0072, cls=0.0072]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:18<00:00,  3.78it/s]
+Train Loss: 0.0036 (CLS=0.0036)
+Val Loss:   0.1925 (CLS=0.1925)
+Val Macro-F1: 0.4427
+
+Epoch 14/15
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training: 100%|███████████████| 2157/2157 [32:46<00:00,  1.10it/s, loss=0.0012, cls=0.0012]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:20<00:00,  3.74it/s]
+Train Loss: 0.0031 (CLS=0.0031)
+Val Loss:   0.1987 (CLS=0.1987)
+Val Macro-F1: 0.4362
+
+Epoch 15/15
+Training:   0%|                                                   | 0/2157 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
+Training:  40%|██████▍         | 861/2157 [13:12<19:26,  1.11it/s, loss=0.0015, cls=0.0015]Training: 100%|█████████████| 2157/2157 [1:14:23<00:00,  2.07s/it, loss=0.0012, cls=0.0012]
+Validating: 100%|████████████████████████████████████████| 750/750 [03:01<00:00,  4.14it/s]
+Train Loss: 0.0031 (CLS=0.0031)
+Val Loss:   0.1975 (CLS=0.1975)
+Val Macro-F1: 0.4383
+Validating: 100%|████████████████████████████████████████| 750/750 [02:58<00:00,  4.21it/s]
 
 === Test Set ===
-Test Loss: 0.6244 (CLS=0.6244)
-Test Macro-F1: 0.4626
-Macro Precision: 0.4776
-Macro Recall:   0.4660
-Macro F1:       0.4626
+Test Loss: 0.1884 (CLS=0.1884)
+Test Macro-F1: 0.4460
+Macro Precision: 0.4563
+Macro Recall:   0.4395
+Macro F1:       0.4460
 Prepared 6000 valid samples
-Traceback (most recent call last):
-  File "/root/a/multimodal_sentiment.py", line 482, in <module>
-    main()
-  File "/root/a/multimodal_sentiment.py", line 386, in main
-    demo_true_labels = demo_sample["raw_labels"]
-                       ~~~~~~~~~~~^^^^^^^^^^^^^^
-KeyError: 'raw_labels'

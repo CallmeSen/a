@@ -9,7 +9,7 @@ COMPUTE_DTYPE = torch.bfloat16
 
 VISION_MODEL_NAME = "microsoft/swinv2-base-patch4-window8-256"
 VISION_HIDDEN_SIZE = 1024
-LLM_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
+LLM_MODEL_NAME = "Qwen/Qwen3-4B-Instruct-2507"
 LLM_HIDDEN_SIZE = 3584
 
 IMAGE_SIZE = 256
@@ -29,9 +29,9 @@ NUM_WORKERS = 0
 LEARNING_RATE = 2e-5
 WEIGHT_DECAY = 0.01
 LORA_LR = 1e-4
-LORA_R = 32
-LORA_ALPHA = 64
-LORA_DROPOUT = 0.05
+LORA_R = 64
+LORA_ALPHA = 128
+LORA_DROPOUT = 0.1
 USE_LORA = os.environ.get("USE_LORA", "0") == "1"
 USE_MULTITASK = os.environ.get("USE_MULTITASK", "0") == "1"
 USE_WEIGHTED_SAMPLER = os.environ.get("USE_WEIGHTED_SAMPLER", "0") == "1"

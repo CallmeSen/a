@@ -1,7 +1,4 @@
-"""Qwen3-4B-Instruct-2507 loading utilities for Multimodal Sentiment Analysis.
-
-Replaces InternLM2.5 / Qwen2.5-7B-Instruct with Qwen3-4B-Instruct-2507 for better Vietnamese support.
-"""
+"""Qwen3-4B-Instruct loading utilities for Multimodal Sentiment Analysis."""
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .config import (
@@ -11,20 +8,21 @@ from .config import (
     ASPECT_START,
     ASPECT_END,
     _set_special_token_ids,
+    Qwen3_4B_OFFLOAD_LM_HEAD,
 )
 
 
 def build_tokenizer_and_llm():
-    """Build Qwen3-4B tokenizer and full causal LM.
+    """Build Qwen3-4B-Instruct tokenizer and full causal LM.
 
     Returns:
         tokenizer: AutoTokenizer instance
         llm_for_clm: AutoModelForCausalLM (full model with LM head)
         llm_base: Qwen2Model (base model without LM head)
         num_layers: int
-        hidden_size: int
+        hidden_size: int (read dynamically from model config)
     """
-    model_name = LLM_MODEL_NAME  # Qwen/Qwen3-4B-Instruct-2507
+    model_name = LLM_MODEL_NAME  # Qwen/Qwen3-4B-Instruct
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     if tokenizer.pad_token_id is None:
@@ -44,14 +42,30 @@ def build_tokenizer_and_llm():
     print(f"[INFO] Special tokens registered: {ASPECT_START}={aspect_start_id}, {ASPECT_END}={aspect_end_id}")
 
     # Load full causal LM (Qwen2ForCausalLM)
-    llm_for_clm = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        trust_remote_code=True,
-        torch_dtype=COMPUTE_DTYPE,
-        attn_implementation="eager",
-    ).to(device).eval()
-
-
+    if Qwen3_4B_OFFLOAD_LM_HEAD:
+        # device_map="auto" puts everything on GPU, then we explicitly
+        # offload lm_head (unused in our task anyway) to CPU to free VRAM.
+        llm_for_clm = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            trust_remote_code=True,
+            torch_dtype=COMPUTE_DTYPE,
+            attn_implementation="eager",
+            device_map="auto",
+        ).eval()
+        # Move lm_head (the language-model projection) to CPU — saves ~300-500 MB VRAM
+        if hasattr(llm_for_clm, "lm_head") and next(llm_for_clm.parameters(), None) is not None:
+            try:
+                llm_for_clm.lm_head = llm_for_clm.lm_head.to("cpu")
+                print("[INFO] Qwen3-4B: lm_head offloaded to CPU (saves ~400 MB VRAM)")
+            except Exception:
+                pass  # Already on CPU or tied weights
+    else:
+        llm_for_clm = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            trust_remote_code=True,
+            torch_dtype=COMPUTE_DTYPE,
+            attn_implementation="eager",
+        ).to(device).eval()
 
     # Resize embeddings to accommodate new special tokens
     llm_for_clm.resize_token_embeddings(len(tokenizer))

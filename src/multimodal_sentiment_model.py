@@ -113,8 +113,7 @@ class MultimodalSentimentModel(nn.Module):
             B, M = pixel_values.shape[:2]
             pixel_flat = pixel_values.reshape(B * M, *pixel_values.shape[2:])
 
-            with torch.no_grad():
-                img_tokens = self.vision_encoder(pixel_flat)  # [B*M, P, 1024]
+            img_tokens = self.vision_encoder(pixel_flat)
             if self._has_nonfinite(img_tokens.float(), "vision_output"):
                 return None, None, True
 
@@ -145,8 +144,7 @@ class MultimodalSentimentModel(nn.Module):
             return visual_tokens.to(dtype=torch.float32), visual_mask, False
 
         # Single-image path: [B, C, H, W]
-        with torch.no_grad():
-            img_tokens = self.vision_encoder(pixel_values)  # [B, P, 1024]
+        img_tokens = self.vision_encoder(pixel_values)
         if self._has_nonfinite(img_tokens.float(), "vision_output_single"):
             return None, None, True
 

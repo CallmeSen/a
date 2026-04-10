@@ -136,23 +136,17 @@ def setup_optimizer(sentiment_model, learning_rate, weight_decay, vision_lr_rati
 
 
 def compute_loss(outputs, labels, run_device, class_weights=None):
-    """Single-head 4-class Focal loss.
-
-    NOTE: class_weights are intentionally NOT applied in the loss function.
-    WeightedRandomSampler already handles class imbalance by oversampling minority
-    samples at the dataset level. Applying class_weights in the loss on top of
-    sampler oversampling causes double-weighting which destabilizes training.
-    """
+    """Single-head 4-class Focal loss with class balancing for extreme imbalance."""
     logits = outputs["logits"]
     while logits.dim() > 2:
         logits = logits.squeeze(-2)
     loss = focal_loss_with_smoothing(
         logits.float(),
         labels.reshape(-1).long(),
-        class_weights=None,
-        alpha=1.0,
-        gamma=1.0,
-        label_smoothing=0.0,
+        class_weights=class_weights,
+        alpha=0.25,
+        gamma=2.0,
+        label_smoothing=0.1,
     )
     return loss, loss.detach()
 
@@ -195,21 +189,17 @@ def _optimizer_step(
 
 
 def multi_task_compute_loss(outputs, labels, aspect_present_labels, run_device, class_weights=None):
-    """Single-task Focal loss (aspect detection auxiliary head removed).
-
-    NOTE: class_weights intentionally omitted — sampler handles imbalance.
-    See compute_loss() for details.
-    """
+    """Single-task Focal loss (aspect detection auxiliary head removed)."""
     logits = outputs["logits"]
     while logits.dim() > 2:
         logits = logits.squeeze(-2)
     loss = focal_loss_with_smoothing(
         logits.float(),
         labels.reshape(-1).long(),
-        class_weights=None,
-        alpha=1.0,
-        gamma=1.0,
-        label_smoothing=0.0,
+        class_weights=class_weights,
+        alpha=0.25,
+        gamma=2.0,
+        label_smoothing=0.1,
     )
     return loss, loss, torch.tensor(0.0, device=run_device)
 

@@ -59,7 +59,6 @@ from src import (
     train_epoch,
     validate,
     setup_optimizer,
-    predict_aspect_sentiment,
     build_tokenizer_and_llm,
 )
 from src.multitask_model import MultitaskSentimentModel
@@ -122,7 +121,7 @@ def main():
     # Compute class weights from training set for imbalanced CrossEntropyLoss
     class_weights = compute_class_weights(dataset_splits, NUM_CLASSES).to(device)
 
-    # 2) Build tokenizer + LLM base (Qwen2.5-7B-Instruct)
+    # 2) Build tokenizer + LLM base (Qwen3-4B-Instruct-2507)
     print(f"\nLoading LLM: {LLM_MODEL_NAME}")
     tokenizer, llm_for_clm, llm_base, num_layers, llm_hidden_size = build_tokenizer_and_llm()
     print(
@@ -164,7 +163,7 @@ def main():
     ).to(device)
 
     # 5) QwenLMWrapper (visual cross-attention injection)
-    use_adapter_layers = list(range(num_layers - 4, num_layers))  # last 4 adapters
+    use_adapter_layers = list(range(num_layers // 2, num_layers))
     llm_wrapper = QwenLMWrapper(
         qwen_for_casual_lm=llm_for_clm,
         num_layers=num_layers,
@@ -372,37 +371,6 @@ def main():
         print(f"Macro Recall:   {macro_recall:.4f}")
         print(f"Macro F1:       {macro_f1:.4f}")
 
-    # 12) Demo inference on first test sample
-    demo_test = SentimentDataset(
-        dataset_splits["test"],
-        IMAGE_DIR,
-        ASPECT2ID,
-        transform=build_transform(IMAGE_SIZE),
-    )
-    if len(demo_test.samples) > 0:
-        demo_sample = demo_test.samples[0]
-        demo_image_path = demo_sample["image_paths"][0]
-        demo_comment = demo_sample["comment"]
-        demo_true_label = demo_sample["sentiment"]
-
-        print(f"\n=== Demo Inference ===")
-        print(f"Comment: {demo_comment}")
-        print(f"True label: {demo_true_label}")
-        print(f"\n--- Aspect-level predictions ---")
-
-        for demo_aspect_name in ASPECT_LABELS:
-            result = predict_aspect_sentiment(
-                demo_image_path,
-                demo_comment,
-                demo_aspect_name,
-                sentiment_model,
-                tokenizer,
-            )
-            print(f"\nAspect: {demo_aspect_name}")
-            print(f"  Predicted: {result['predicted_label']}")
-            print(f"  Probabilities: {result['probabilities']}")
-
-
 def _build_train_loader(dataset_splits, tokenizer):
     train_dataset = SentimentDataset(
         dataset_splits["train"],
@@ -416,7 +384,7 @@ def _build_train_loader(dataset_splits, tokenizer):
 
     if USE_WEIGHTED_SAMPLER:
         # R7: WeightedRandomSampler — oversamples minority sentiment samples
-        sampler = build_weighted_sampler(train_dataset, minority_upsample_ratio=2.0)
+        sampler = build_weighted_sampler(train_dataset, minority_upsample_ratio=5.0)
         return DataLoader(
             train_dataset,
             batch_size=BATCH_SIZE,
