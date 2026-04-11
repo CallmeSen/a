@@ -1,10 +1,12 @@
 """Perceiver Resampler: compress SwinV2 patch features into K=64 visual query tokens.
 
 Architecture (Diagram.md — InternVL-style):
-  [B*M, N_patches, 2048]  <- MLP Projector output (already LLM dim)
+  [B*M, N_patches, vision_dim=1024]  <- MLP Projector output (SwinV2-Base hidden_size)
        -> learnable query tokens (Cross-Attn to vision features)
        -> FFN + residual
-       -> [B*M, K, 2048]  where K = 64 << N_patches
+       -> [B*M, K, vision_dim]  where K = 64 << N_patches
+       -> vision_to_llm projection
+       -> [B*M, K, llm_dim]  where llm_dim = 2560 (Qwen3-4B)
 
 The cross-attention queries (learnable) attend over the projected vision keys,
 effectively compressing N_patches -> K tokens via attention-based selection.
@@ -19,19 +21,21 @@ import torch.nn.functional as F
 class PerceiverResampler(nn.Module):
     """Compress visual patch tokens into a fixed number of learnable query tokens.
 
-    Input:  [B*M, N_patches, vision_dim=2048]  (from MLP Projector)
-    Output: [B*M, num_queries=64, vision_dim=2048]
+    Input:  [B*M, N_patches, vision_dim=1024]  (from MLP Projector, SwinV2-Base hidden_size)
+    Output: [B*M, num_queries=64, llm_dim=2560]  (Qwen3-4B hidden_size)
     """
 
     def __init__(
         self,
-        vision_dim: int = 2048,
+        vision_dim: int = 1024,
+        llm_dim: int = 2560,
         num_queries: int = 64,
         num_heads: int = 8,
         expansion: int = 4,
     ):
         super().__init__()
         self.vision_dim = vision_dim
+        self.llm_dim = llm_dim
         self.num_queries = num_queries
         self.num_heads = num_heads
         self.head_dim = vision_dim // num_heads
@@ -54,6 +58,9 @@ class PerceiverResampler(nn.Module):
             nn.Linear(vision_dim * expansion, vision_dim),
         )
         self.ln2 = nn.LayerNorm(vision_dim)
+        # Project from vision_dim (1024) to llm_dim (2560) for Qwen3 cross-attention injection
+        self.vision_to_llm = nn.Linear(vision_dim, llm_dim, bias=False)
+        self.ln_out = nn.LayerNorm(llm_dim)
 
     def forward(
         self,
@@ -102,4 +109,13 @@ class PerceiverResampler(nn.Module):
         ffn_out = self.ffn(x)
         x = self.ln2(x + ffn_out)
 
+        # Project from vision_dim (1024) to llm_dim (2560) for Qwen3 cross-attention
+        x = self.vision_to_llm(x)
+        x = self.ln_out(x)
+
         return x
+
+    @property
+    def output_dim(self) -> int:
+        """Return the output dimension (llm_dim)."""
+        return self.llm_dim

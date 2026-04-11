@@ -5,7 +5,9 @@ Uses forward hooks to inject visual cross-attention at the correct architectural
 2. Pre-compute position embeddings in the wrapper to avoid rotary_emb hook conflicts.
 3. No layer replacement — only hook injection points.
 
-The GatedCrossAttentionAdapter is included directly (same pattern as InternLM).
+Supports two adapter types:
+- GatedCrossAttentionAdapter (original): full-rank projections, single gate
+- DualGatedCrossAttentionAdapter: low-rank dual-branch, ReLU gating (USE_DUAL_ADAPTER=1)
 """
 from typing import List, Optional, Tuple
 import torch
@@ -153,7 +155,9 @@ class QwenLMWrapper(nn.Module):
     decorator conflicts with @use_kernelized_func.
 
     Adapter injection position: after self-attention output, before residual addition.
-    This is the same architectural position as GatedCrossAttentionAdapter in internlm_wrapper.
+    Supports two adapter types:
+    - GatedCrossAttentionAdapter (USE_DUAL_ADAPTER=0): full-rank, single gate
+    - DualGatedCrossAttentionAdapter (USE_DUAL_ADAPTER=1): low-rank dual-branch, ReLU gating
     """
 
     def __init__(
@@ -164,6 +168,8 @@ class QwenLMWrapper(nn.Module):
         num_visual_tokens: int = 64,
         use_adapter_layers: Optional[List[int]] = None,
         adapter_num_heads: int = 8,
+        use_dual_adapter: bool = False,
+        dual_adapter_rank: int = 64,
     ):
         super().__init__()
         self.qwen_lm = qwen_for_casual_lm
@@ -180,27 +186,46 @@ class QwenLMWrapper(nn.Module):
         self.num_layers = num_layers
         self.hidden_size = hidden_size
         self.num_visual_tokens = num_visual_tokens
+        self.use_dual_adapter = use_dual_adapter
+        self.dual_adapter_rank = dual_adapter_rank
 
         if use_adapter_layers is None:
             use_adapter_layers = list(range(num_layers - 4, num_layers))
         self.use_adapter_layers = sorted(set(use_adapter_layers))
 
-        # Build one GatedCrossAttentionAdapter per selected layer
+        # Select adapter class
+        if use_dual_adapter:
+            from .dual_adapter import DualGatedCrossAttentionAdapter
+
+            adapter_class = DualGatedCrossAttentionAdapter
+            print(f"[Dual Adapter] Using DualGatedCrossAttentionAdapter (rank={dual_adapter_rank})")
+        else:
+            adapter_class = GatedCrossAttentionAdapter
+            print(f"[Adapter] Using GatedCrossAttentionAdapter (full-rank)")
+
+        # Build one adapter per selected layer
         self.adapters = nn.ModuleDict()
         for layer_idx in self.use_adapter_layers:
-            self.adapters[str(layer_idx)] = GatedCrossAttentionAdapter(
-                hidden_size=hidden_size,
-                num_heads=adapter_num_heads,
-            )
+            if use_dual_adapter:
+                self.adapters[str(layer_idx)] = adapter_class(
+                    hidden_size=hidden_size,
+                    num_heads=adapter_num_heads,
+                    rank=dual_adapter_rank,
+                )
+            else:
+                self.adapters[str(layer_idx)] = adapter_class(
+                    hidden_size=hidden_size,
+                    num_heads=adapter_num_heads,
+                )
 
         self._hooks: List[torch.utils.hooks.RemovableHandle] = []
         self._visual_tokens: Optional[torch.Tensor] = None
         self._visual_mask: Optional[torch.Tensor] = None
-        self._force_detach = False  # Override: never detach when LoRA is active (LoRA params need gradients)
+        self._allow_gradient = False  # Override: allow gradients when LoRA is active (LoRA params need gradients)
 
-    def set_force_detach(self, value: bool):
-        """Override detach behavior — call with False when LoRA is active."""
-        self._force_detach = value
+    def set_allow_gradient(self, value: bool):
+        """Override detach behavior — True = allow gradients to flow (no detach for LoRA)."""
+        self._allow_gradient = value
 
     def _make_attn_hook(self, layer_idx: int, backbone_frozen: bool):
         """Hook on self.self_attn output to inject gated visual cross-attention.
@@ -227,7 +252,7 @@ class QwenLMWrapper(nn.Module):
             # Adapter output is added back — its gradient flows via trainable params.
             # NOTE: Never detach when LoRA is active — LoRA A/B params need gradients flowing
             # through the backbone's attention outputs to update correctly.
-            if backbone_frozen and not self._force_detach:
+            if backbone_frozen and not self._allow_gradient:
                 attn_output = attn_output.detach()
 
             if self._visual_tokens is None:
@@ -241,7 +266,14 @@ class QwenLMWrapper(nn.Module):
                 visual_mask=self._visual_mask,
             )
             adapted_bf16 = adapted_fp32.to(attn_output.dtype)
-            return (adapted_bf16, None)
+
+            # Return same type as original output:
+            # Qwen2: tuple (attn_output, attn_weights) → return (adapted, None)
+            # Qwen3: tensor attn_output (no tuple) → return adapted directly
+            if isinstance(output, tuple):
+                return (adapted_bf16, None)
+            else:
+                return adapted_bf16
 
         return hook
 

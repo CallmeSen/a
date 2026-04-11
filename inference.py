@@ -84,7 +84,7 @@ def build_model_from_checkpoint(tokenizer):
         num_heads=8,
         expansion=4,
     ).to(device)
-    use_adapter_layers = list(range(num_layers - 4, num_layers))
+    use_adapter_layers = list(range(num_layers // 2, num_layers))
     llm_wrapper = QwenLMWrapper(
         qwen_for_casual_lm=llm_for_clm,
         num_layers=num_layers,

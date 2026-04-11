@@ -93,8 +93,12 @@ from src.config import (
     ASPECT2ID,
     NUM_CLASSES,
     USE_LORA,
+    USE_VCE,
     USE_MULTITASK,
     USE_WEIGHTED_SAMPLER,
+    USE_DUAL_ADAPTER,
+    DUAL_ADAPTER_RANK,
+    USE_ASPECT_ATTN,
     LORA_R,
     LORA_ALPHA,
     LORA_DROPOUT,
@@ -155,9 +159,10 @@ def main():
         llm_dim=llm_hidden_size,
     ).to(device)
 
-    # 4) PerceiverResampler
+    # 4) PerceiverResampler (vision_dim=1024 for SwinV2-Base, llm_dim=2560 for Qwen3)
     perceiver_resampler = PerceiverResampler(
-        vision_dim=llm_hidden_size,
+        vision_dim=VISION_HIDDEN_SIZE,
+        llm_dim=llm_hidden_size,
         num_queries=64,
         num_heads=8,
         expansion=4,
@@ -171,6 +176,8 @@ def main():
         hidden_size=llm_hidden_size,
         num_visual_tokens=64 * MAX_IMAGES,
         use_adapter_layers=use_adapter_layers,
+        use_dual_adapter=USE_DUAL_ADAPTER,
+        dual_adapter_rank=DUAL_ADAPTER_RANK,
     ).to(device)
 
     # 6) Full multimodal model (single-task or R8 multitask)

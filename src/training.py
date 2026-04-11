@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from sklearn.metrics import f1_score
 
-from .config import COMPUTE_DTYPE
+from .config import COMPUTE_DTYPE, USE_CONTRASTIVE_LOSS, CONTRASTIVE_WEIGHT
 
 
 # --- Focal Loss with optional label smoothing ---
@@ -146,6 +146,24 @@ def compute_loss(outputs, labels, run_device, class_weights=None):
     logits = outputs["logits"]
     while logits.dim() > 2:
         logits = logits.squeeze(-2)
+
+    # Contrastive loss path: USE_CONTRASTIVE_LOSS=1
+    if USE_CONTRASTIVE_LOSS and "embeddings" in outputs:
+        from .contrastive_loss import CombinedSentimentLoss
+        embeddings = outputs["embeddings"]
+        arc_loss_fn = CombinedSentimentLoss(
+            embedding_dim=embeddings.size(-1),
+            num_classes=logits.size(-1),
+            arc_weight=CONTRASTIVE_WEIGHT,
+            focal_weight=1.0 - CONTRASTIVE_WEIGHT,
+        )
+        total_loss, focal_loss_val, arc_loss_val = arc_loss_fn(
+            logits.float(),
+            embeddings,
+            labels.reshape(-1).long(),
+        )
+        return total_loss, focal_loss_val
+
     loss = focal_loss_with_smoothing(
         logits.float(),
         labels.reshape(-1).long(),

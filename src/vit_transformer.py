@@ -43,7 +43,21 @@ class VisionEncoder(nn.Module):
 
         print(f"Loaded: hidden_size={self.hidden_size}, num_patches={self.num_patches}")
 
-    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, pixel_values: torch.Tensor, return_all_stages: bool = False
+    ) -> torch.Tensor | dict:
         pixel_values = pixel_values.to(self.device, dtype=self.torch_dtype)
-        outputs = self.model(pixel_values=pixel_values)
-        return outputs.last_hidden_state
+        outputs = self.model(
+            pixel_values=pixel_values,
+            output_hidden_states=True,
+            return_dict=True,
+        )
+        if not return_all_stages:
+            return outputs.last_hidden_state
+        # Return dict of multi-stage features for VCE
+        return {
+            "stage1": outputs.reshaped_hidden_states[1],   # [B, 256, 64, 64]
+            "stage2": outputs.reshaped_hidden_states[2],   # [B, 512, 32, 32]
+            "stage3": outputs.reshaped_hidden_states[3],   # [B, 1024, 16, 16]
+            "stage4": outputs.reshaped_hidden_states[4],   # [B, 1024, 8, 8]
+        }
