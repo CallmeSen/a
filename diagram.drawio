@@ -1,244 +1,234 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="app.diagrams.net" modified="2026-04-18T00:00:00.000Z" agent="Cursor" version="24.7.17">
-  <diagram id="vimacsa-arch" name="Page-1">
-    <mxGraphModel dx="2400" dy="1800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2800" pageHeight="2400" math="0" shadow="0">
+<mxfile host="app.diagrams.net" modified="2026-04-18T11:20:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="vimacsa-modules" name="Page-1">
+    <mxGraphModel dx="2400" dy="1800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2300" pageHeight="1500" math="0" shadow="0">
       <root>
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
 
-        <!-- ================================================================ -->
-        <!--  TITLE & OVERVIEW                                                 -->
-        <!-- ================================================================ -->
-        <mxCell id="title" value="ViMACSA — Encode-Once, Aspect-Loop Architecture&#xa;&#xa;Multimodal ACSA Model (MultimodalACSAModel)&#xa;src/aspect_model.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=16;align=center;fontStyle=bold;" vertex="1" parent="1">
-          <mxGeometry x="60" y="30" width="820" height="80" as="geometry"/>
+        <mxCell id="title" value="ViMACSA module-level architecture" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=22;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1640" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="subtitle" value="Each box is an implementation module; tensor names are shown on connections" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="76" width="1640" height="30" as="geometry"/>
         </mxCell>
 
-        <!-- ================================================================ -->
-        <!--  INPUT STAGE                                                      -->
-        <!-- ================================================================ -->
-        <mxCell id="lbl_input" value="INPUT" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=13;fontStyle=bold;fontColor=#333333;" vertex="1" parent="1">
-          <mxGeometry x="60" y="140" width="200" height="25" as="geometry"/>
+        <mxCell id="group_inputs" value="Inputs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fbff;strokeColor=#6c8ebf;fontSize=14;fontStyle=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="140" width="250" height="900" as="geometry"/>
+        </mxCell>
+        <mxCell id="group_encode" value="Encoding + projection modules" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffdf5;strokeColor=#d6b656;fontSize=14;fontStyle=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="320" y="140" width="520" height="760" as="geometry"/>
+        </mxCell>
+        <mxCell id="group_loop" value="Shared aspect loop modules" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fbf7fc;strokeColor=#9673a6;fontSize=14;fontStyle=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="880" y="140" width="800" height="900" as="geometry"/>
+        </mxCell>
+        <mxCell id="group_output" value="Output modules" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8ef;strokeColor=#d79b00;fontSize=14;fontStyle=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1070" width="1640" height="220" as="geometry"/>
         </mxCell>
 
-        <mxCell id="box_input" value="+--------------------------------------------------------------+
-| Input                                                         |
-|  comment ─────────────────────────────────────────────────────┤
-|  images [B, M, 3, 256, 256] ─────────────────────────────────┤
-|  roi_data per image ──────────────────────────────────────────┤
-+--------------------------------------------------------------+" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;align=left;fontFamily=Courier New;spacing=0;spacingTop=0;spacingBottom=0;" vertex="1" parent="1">
-          <mxGeometry x="60" y="170" width="820" height="110" as="geometry"/>
+        <mxCell id="in_text" value="comment / tokenizer&#xa;input_ids [B, L_txt]&#xa;attention_mask [B, L_txt]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="70" y="220" width="190" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="in_images" value="pixel_values&#xa;[B, M, 3, 256, 256]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="70" y="350" width="190" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="in_roi" value="roi_data&#xa;List[List[Dict[str, Any]]]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="70" y="480" width="190" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="in_labels" value="aspect_labels&#xa;List[Dict[int, int]]&#xa;train only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;dashed=1;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="70" y="610" width="190" height="70" as="geometry"/>
         </mxCell>
 
-        <!-- Arrow: Input → Encoding -->
-        <mxCell id="arrow_input_enc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;strokeWidth=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="470" y="280" as="sourcePoint"/>
-            <mxPoint x="470" y="300" as="targetPoint"/>
-          </mxGeometry>
+        <mxCell id="mod_embed" value="_embed_tokens&#xa;frozen LLM embedding layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="360" y="220" width="180" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="lbl_input_enc" value="output:
-- H_txt [B, L_txt, 2560]
-- H_patch [B, M, P', 2560]
-- H_img_sum [B, M, 2560]
-- H_roi [B, M, K', 2560]" style="text;html=1;strokeColor=#6c8ebf;fillColor=#dae8fc;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#333333;" vertex="1" parent="1">
-          <mxGeometry x="580" y="280" width="220" height="70" as="geometry"/>
+        <mxCell id="mod_siglip" value="SigLIPEncoder&#xa;frozen vision encoder" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="360" y="350" width="180" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_roi_enc" value="SigLIPEncoder.encode_roi&#xa;frozen ROI encoding path" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="360" y="500" width="180" height="90" as="geometry"/>
         </mxCell>
 
-        <!-- ================================================================ -->
-        <!--  ENCODING STAGE (all frozen)                                     -->
-        <!-- ================================================================ -->
-        <mxCell id="lbl_encoding" value="ENCODING (FROZEN)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=13;fontStyle=bold;fontColor=#333333;" vertex="1" parent="1">
-          <mxGeometry x="60" y="295" width="200" height="25" as="geometry"/>
+        <mxCell id="mod_patch_proj" value="MLPProjector&#xa;Linear - GELU - Linear&#xa;compress to P' &lt;= 32" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="600" y="300" width="190" height="85" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_img_proj" value="img_sum_projector&#xa;Linear(1152 -&gt; 2560)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="600" y="410" width="190" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_roi_proj" value="RoIProjector&#xa;Linear - GELU - Linear" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="600" y="530" width="190" height="85" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_masks" value="_get_img_mask&#xa;_get_roi_mask" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="600" y="650" width="190" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="note_patch_unused" value="Implementation note&#xa;H_patch -&gt; H_patch_flat is computed&#xa;but not consumed later in forward()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="600" y="760" width="190" height="80" as="geometry"/>
         </mxCell>
 
-        <mxCell id="box_encoding" value="+--------------------------------------------------------------+
-| ENCODING (all frozen)                                         |
-|  comment ──► llm.embed_tokens() ─────► H_txt [B, L_txt, 2560] |
-|                                                               |
-| images ───► SigLIPEncoder ──► patch_feats [B, M, P, 1152]     |
-|               │              img_summaries [B, M, 1152]       |
-|               │                                                   |
-|               └─► encode_roi(pixel_values, roi_data)            |
-|                                       └─► roi_seq [B, M, K, 1152]
-+--------------------------------------------------------------+" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;fontFamily=Courier New;spacing=0;spacingTop=0;spacingBottom=0;" vertex="1" parent="1">
-          <mxGeometry x="60" y="325" width="820" height="140" as="geometry"/>
+        <mxCell id="loop_label" value="Repeated for a = 0..5 with shared weights" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="930" y="190" width="270" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_aspect_query" value="AspectQuery.all_queries()&#xa;q_a per aspect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="930" y="260" width="170" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_text_ret" value="TextRetriever&#xa;cross-attention&#xa;8 heads" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="930" y="420" width="180" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_img_ret" value="ImageRetriever&#xa;cross-attention&#xa;4 heads" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1190" y="420" width="180" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_roi_ret" value="RoiRetriever&#xa;cross-attention&#xa;4 heads" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1450" y="420" width="180" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_fusion" value="GatedFusion&#xa;3 sigmoid gates + LayerNorm" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1190" y="560" width="180" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_seq" value="build_aspect_sequence&#xa;[ASP | TXT_EVI | IMG_EVI | ROI_EVI | FUSE]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1190" y="700" width="220" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_llm" value="self.llm&#xa;Qwen3-4B + attached LoRA config" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1190" y="840" width="220" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_head" value="ClassificationHead&#xa;LayerNorm - FC - GELU - FC" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1450" y="840" width="180" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_stack" value="torch.stack(all_logits)&#xa;logits_3d [B, 6, 4]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1450" y="970" width="180" height="70" as="geometry"/>
         </mxCell>
 
-        <!-- Arrow: Encoding → Projection -->
-        <mxCell id="arrow_enc_proj" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;strokeWidth=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="470" y="465" as="sourcePoint"/>
-            <mxPoint x="470" y="485" as="targetPoint"/>
-          </mxGeometry>
+        <mxCell id="mod_targets" value="_get_targets&#xa;targets_2d [B, 6]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="120" y="1140" width="220" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="lbl_enc_proj" value="output:
-- H_txt [B, L_txt, 2560]
-- H_patch [B, M, P', 2560]
-- H_img_sum [B, M, 2560]
-- H_roi [B, M, K', 2560]" style="text;html=1;strokeColor=#6c8ebf;fillColor=#dae8fc;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#333333;" vertex="1" parent="1">
-          <mxGeometry x="580" y="465" width="220" height="70" as="geometry"/>
+        <mxCell id="mod_reshape" value="reshape outputs&#xa;logits [B * 6, 4]&#xa;targets [B * 6]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="460" y="1140" width="260" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_loss" value="F.cross_entropy&#xa;loss" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="860" y="1140" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="mod_return" value="forward() return&#xa;{logits, targets, loss}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="1140" width="220" height="70" as="geometry"/>
         </mxCell>
 
-        <!-- ================================================================ -->
-        <!--  PROJECTION STAGE (trainable)                                    -->
-        <!-- ================================================================ -->
-        <mxCell id="lbl_proj" value="PROJECTION (TRAINABLE)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=13;fontStyle=bold;fontColor=#333333;" vertex="1" parent="1">
-          <mxGeometry x="60" y="480" width="200" height="25" as="geometry"/>
+        <mxCell id="legend" value="Legend&#xa;&#xa;Blue = inputs&#xa;Yellow = frozen encoders&#xa;Red = trainable projectors / head&#xa;Purple = shared aspect-loop modules&#xa;Orange = output / loss path&#xa;Gray dashed = implementation caveat" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=12;align=left;verticalAlign=top;spacingLeft=10;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="1710" y="140" width="430" height="220" as="geometry"/>
+        </mxCell>
+        <mxCell id="notes" value="Implementation notes&#xa;&#xa;1. The retrieval path uses H_txt, H_img_sum, H_roi_flat, img_mask, and roi_mask.&#xa;2. H_patch is projected and flattened but currently not consumed after that.&#xa;3. LoRA is attached, then a later freeze over self.llm.parameters() also freezes LoRA params in current code.&#xa;4. Returned logits are flattened to [B * 6, 4] before leaving forward()." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=12;align=left;verticalAlign=top;spacingLeft=10;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="1710" y="390" width="430" height="280" as="geometry"/>
+        </mxCell>
+        <mxCell id="files" value="Source mapping&#xa;&#xa;src/aspect_model.py&#xa;src/attention.py&#xa;src/projector_layer.py&#xa;src/aspect_sequence.py&#xa;src/config.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=12;align=left;verticalAlign=top;spacingLeft=10;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="1710" y="700" width="430" height="180" as="geometry"/>
         </mxCell>
 
-        <mxCell id="box_proj" value="+--------------------------------------------------------------+
-| PROJECTION (trainable)                                        |
-|  patch_feats ──► MLPProjector ──► H_patch [B, M, P', 2560]    |
-|  roi_seq ───────► RoIProjector ──► H_roi [B, M, K', 2560]    |
-|  img_summaries ─► Linear(1152→2560) ──► H_img_sum [B, M, 2560]
-+--------------------------------------------------------------+" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=left;fontFamily=Courier New;spacing=0;spacingTop=0;spacingBottom=0;" vertex="1" parent="1">
-          <mxGeometry x="60" y="510" width="820" height="110" as="geometry"/>
+        <mxCell id="e1" value="input_ids" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="in_text" target="mod_embed">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" value="H_txt [B, L_txt, 2560]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_embed" target="mod_text_ret">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" value="attention_mask [B, L_txt]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;dashed=1;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="in_text" target="mod_text_ret">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
 
-        <!-- Arrow: Projection → Aspect Loop -->
-        <mxCell id="arrow_proj_loop" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;strokeWidth=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="470" y="620" as="sourcePoint"/>
-            <mxPoint x="470" y="645" as="targetPoint"/>
-          </mxGeometry>
+        <mxCell id="e4" value="pixel_values" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="in_images" target="mod_siglip">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="lbl_proj_loop" value="output:
-- H_txt, H_patch, H_img_sum, H_roi
-- img_mask [B, M]
-- roi_mask [B, M*K']" style="text;html=1;strokeColor=#6c8ebf;fillColor=#dae8fc;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#333333;" vertex="1" parent="1">
-          <mxGeometry x="580" y="620" width="220" height="55" as="geometry"/>
+        <mxCell id="e5" value="pixel_values" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="in_images" target="mod_roi_enc">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-
-        <!-- ================================================================ -->
-        <!--  ASPECT LOOP — main processing box                               -->
-        <!-- ================================================================ -->
-        <mxCell id="lbl_loop" value="ASPECT LOOP (shared weights, 6 iterations: a = 0..5)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=13;fontStyle=bold;fontColor=#333333;" vertex="1" parent="1">
-          <mxGeometry x="60" y="640" width="820" height="25" as="geometry"/>
+        <mxCell id="e6" value="roi_data" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="in_roi" target="mod_roi_enc">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-
-        <mxCell id="box_loop" value="+--------------------------------------------------------------+
-| ASPECT LOOP (shared weights, 6 iterations: a = 0..5)          |
-|                                                               |
-|  For each aspect a:                                           |
-|                                                               |
-|  aspect_queries[a] ────────────────────────────► ASP_a [B, 2560]
-|                                                               |
-|  TextRetriever (cross-attention, 8 heads):                   |
-|  H_txt ─┬─────────────────────────────► TXT_EVI_a [B, 2560]  |
-|         │  attention_mask [B, L_txt]                           |
-|                                                               |
-|  ImageRetriever (cross-attention, 4 heads):                   |
-|  H_img_sum ─┬────────────────────────► IMG_EVI_a [B, 2560]   |
-|              │  img_mask [B, M]                               |
-|                                                               |
-|  RoiRetriever (cross-attention, 4 heads):                     |
-|  H_roi ──────┬────────────────────────► ROI_EVI_a [B, 2560] |
-|              │  roi_mask [B, M*K']                             |
-|                                                               |
-|  GatedFusion:                                                 |
-|  [TXT_EVI] ─┤                                                  |
-|  [IMG_EVI] ──┼─► GatedFusion ──────► FUSE_a [B, 2560]        |
-|  [ROI_EVI] ─┘                                                  |
-|                                                               |
-|  5-token sequence:                                             |
-|  [ASP_a | TXT_EVI_a | IMG_EVI_a | ROI_EVI_a | FUSE_a]         |
-|                                                               |
-|  Shared LLM decoder:                                          |
-|  [ASP]──┐                                                     |
-|  [TXT]──┤                                                     |
-|  [IMG]──┼─► Qwen3-4B + LoRA ──► last_hidden ──► Classification │
-|  [ROI]──┤       (r=64)       [B, 5, 2560]      Head ──►     |
-|  [FUSE]─┘                                    logits_a [B, 4] |
-|                                                               |
-|  logits stacked:                                              |
-|  └────────────────────────────────► logits [B, 6, 4]        |
-+--------------------------------------------------------------+" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=left;fontFamily=Courier New;spacing=0;spacingTop=0;spacingBottom=0;" vertex="1" parent="1">
-          <mxGeometry x="60" y="670" width="820" height="350" as="geometry"/>
+        <mxCell id="e7" value="patch_feats [B, M, P, 1152]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_siglip" target="mod_patch_proj">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" value="img_summaries [B, M, 1152]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_siglip" target="mod_img_proj">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" value="roi_seq [B, M, K, 1152]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_roi_enc" target="mod_roi_proj">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e10" value="H_patch -&gt; H_patch_flat" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_patch_proj" target="note_patch_unused">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e11" value="H_img_sum [B, M, 2560]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_img_proj" target="mod_img_ret">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e12" value="H_roi_flat [B, M * K', 2560]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_roi_proj" target="mod_roi_ret">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e13" value="pixel_values" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="in_images" target="mod_masks">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e14" value="H_roi_flat" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_roi_proj" target="mod_masks">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e15" value="img_mask [B, M]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;dashed=1;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_masks" target="mod_img_ret">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e16" value="roi_mask [B, M * K']" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;dashed=1;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_masks" target="mod_roi_ret">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
 
-        <!-- Arrow: Aspect Loop → Output -->
-        <mxCell id="arrow_loop_out" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;strokeWidth=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="470" y="1020" as="sourcePoint"/>
-            <mxPoint x="470" y="1045" as="targetPoint"/>
-          </mxGeometry>
+        <mxCell id="e17" value="q_a [B, 2560]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_aspect_query" target="mod_text_ret">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="lbl_loop_out" value="output:
-- logits [B, 6, 4]
-- targets [B, 6]
-- loss (CrossEntropy)" style="text;html=1;strokeColor=#6c8ebf;fillColor=#dae8fc;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#333333;" vertex="1" parent="1">
-          <mxGeometry x="580" y="1020" width="220" height="55" as="geometry"/>
+        <mxCell id="e18" value="q_a" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_aspect_query" target="mod_img_ret">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-
-        <!-- ================================================================ -->
-        <!--  OUTPUT / LOSS STAGE                                              -->
-        <!-- ================================================================ -->
-        <mxCell id="lbl_output" value="OUTPUT" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=13;fontStyle=bold;fontColor=#333333;" vertex="1" parent="1">
-          <mxGeometry x="60" y="1040" width="200" height="25" as="geometry"/>
+        <mxCell id="e19" value="q_a" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_aspect_query" target="mod_roi_ret">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-
-        <mxCell id="box_output" value="+--------------------------------------------------------------+
-| CrossEntropyLoss                                              |
-|  loss = CE(logits [B*6, 4], targets [B*6])                   |
-|  classes: 0=Irrelative, 1=Negative, 2=Neutral, 3=Positive   |
-+--------------------------------------------------------------+" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=left;fontFamily=Courier New;spacing=0;spacingTop=0;spacingBottom=0;" vertex="1" parent="1">
-          <mxGeometry x="60" y="1070" width="820" height="80" as="geometry"/>
+        <mxCell id="e20" value="h_txt_a" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_text_ret" target="mod_fusion">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-
-        <!-- ================================================================ -->
-        <!--  COMPONENT DETAILS SIDEBAR                                       -->
-        <!-- ================================================================ -->
-        <mxCell id="lbl_details" value="Component Details" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=13;fontStyle=bold;fontColor=#333333;" vertex="1" parent="1">
-          <mxGeometry x="920" y="170" width="200" height="25" as="geometry"/>
+        <mxCell id="e21" value="h_img_a" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_img_ret" target="mod_fusion">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-
-        <mxCell id="comp_details" value="ENCODING (FROZEN)
-━━━━━━━━━━━━━━━━━━━━━━
-SigLIP2-Large (google/siglip2-so400m-patch16-256)
-LLM embed_tokens (Qwen3-4B-Instruct)
-
-PROJECTION (TRAINABLE)
-━━━━━━━━━━━━━━━━━━━━━━
-MLPProjector: Linear(1152→2560), GELU, Linear(2560→2560)
-RoIProjector: Linear(1152→2560), GELU, Linear(2560→2560)
-img_sum_projector: Linear(1152→2560)
-
-ASPECT LOOP (SHARED, TRAINABLE)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-AspectQuery: Embedding(6, 2560) — Gaussian init
-TextRetriever: Cross-Attention, 8 heads
-ImageRetriever: Cross-Attention, 4 heads
-RoiRetriever: Cross-Attention, 4 heads
-GatedFusion: 3 sigmoid gates + LayerNorm
-build_aspect_sequence(): [B,5,2560] seq
-Qwen3-4B + LoRA r=64 (frozen backbone + LoRA)
-ClassificationHead: LayerNorm + FC + GELU + FC→4
-
-6 Aspects: Facilities, Public_area,
-Location, Food, Room, Service
-
-Classes: 0=Irrelative, 1=Negative,
-2=Neutral, 3=Positive" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=10;fontFamily=Courier New;align=left;spacing=0;" vertex="1" parent="1">
-          <mxGeometry x="920" y="200" width="340" height="500" as="geometry"/>
+        <mxCell id="e22" value="h_roi_a" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_roi_ret" target="mod_fusion">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e23" value="ASP" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_aspect_query" target="mod_seq">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e24" value="TXT_EVI" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_text_ret" target="mod_seq">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e25" value="IMG_EVI" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_img_ret" target="mod_seq">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e26" value="ROI_EVI" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_roi_ret" target="mod_seq">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e27" value="FUSE" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_fusion" target="mod_seq">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e28" value="seq_a, mask_a, pos_a" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_seq" target="mod_llm">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e29" value="last_hidden[:, -1, :]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_llm" target="mod_head">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e30" value="logits_a [B, 4]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_head" target="mod_stack">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
 
-        <!-- ================================================================ -->
-        <!--  LEGEND                                                           -->
-        <!-- ================================================================ -->
-        <mxCell id="legend" value="Legend
-━━━━━━━━━━━━━━━━━━━━━━━
-  Yellow box = frozen module
-  Red box    = trainable module
-  Purple box = aspect-loop / shared weights
-  Orange box = output / loss
-━━━━━━━━━━━━━━━━━━━━━━━
-Color border coding:
-  Blue border = input
-  Yellow border = frozen
-  Red border = trainable
-  Purple border = aspect loop
-  Orange border = output" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontSize=10;fontFamily=Courier New;align=left;" vertex="1" parent="1">
-          <mxGeometry x="920" y="720" width="340" height="160" as="geometry"/>
+        <mxCell id="e31" value="aspect_labels" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#d79b00;dashed=1;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="in_labels" target="mod_targets">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e32" value="targets_2d [B, 6]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_targets" target="mod_reshape">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e33" value="logits_3d [B, 6, 4]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_stack" target="mod_reshape">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e34" value="flattened logits + targets" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_reshape" target="mod_loss">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e35" value="logits, targets" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_reshape" target="mod_return">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e36" value="loss" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#555555;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="mod_loss" target="mod_return">
+          <mxGeometry relative="1" as="geometry"/>
         </mxCell>
 
       </root>
