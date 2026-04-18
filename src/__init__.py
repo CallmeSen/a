@@ -1,55 +1,88 @@
-"""Multimodal sentiment training package."""
-
-from .vit_transformer import VisionEncoder
-from .projector_layer import MLPProjector
-from .perceiver_resampler import PerceiverResampler
-from .vce_module import MultiScaleVisualFusion
-from .dual_adapter import DualGatedCrossAttentionAdapter
-from .contrastive_loss import SupervisedAngularMarginLoss, CombinedSentimentLoss
-from .aspect_guided_attention import AspectGuidedVisualAttention
-from .qwen_wrapper import QwenLMWrapper
-from .multimodal_sentiment_model import MultimodalSentimentModel
-from .llm_factory import build_tokenizer_and_llm, build_tokenizer_only
-from .data import (
-    SentimentDataset,
-    make_collate_fn,
-    load_all_splits,
-    build_transform,
-    build_train_transform,
-    compute_class_weights,
-    build_weighted_sampler,
+from src.config import (
+    ASPECT_LABELS,
+    NUM_ASPECTS,
+    LLM_NAME,
+    VIT_NAME,
+    LLM_HIDDEN,
+    VIT_HIDDEN,
+    MAX_IMAGES,
+    IMAGE_SIZE,
+    MAX_TEXT_LEN,
+    MAX_PATCH_TOKENS_PER_IMAGE,
+    MAX_ROI_TOKENS_PER_IMAGE,
+    LORA_R,
+    LORA_ALPHA,
+    LORA_TARGET_MODULES,
+    LR_LORA,
+    LR_OTHER,
+    WEIGHT_DECAY,
+    WARMUP_RATIO,
+    BATCH_SIZE,
+    GRADIENT_ACCUMULATION,
+    MAX_EPOCHS,
+    EARLY_STOPPING_PATIENCE,
+    DATA_DIR,
+    OUTPUT_DIR,
 )
-from .training import LazyLambdaScheduler, train_epoch, validate, setup_optimizer
-from .inference import predict_aspect_sentiment
+
+from src.vit_encoder import SigLIPEncoder
+from src.projector_layer import MLPProjector, RoIProjector
+from src.attention import (
+    AspectQuery,
+    TextRetriever,
+    ImageRetriever,
+    RoiRetriever,
+    GatedFusion,
+)
+from src.aspect_model import MultimodalACSAModel, ClassificationHead
+from src.data import (
+    MultimodalSentimentDataset,
+    collate_fn,
+    build_dataloader,
+)
 
 __all__ = [
-    # Core model components
-    "VisionEncoder",
+    # Config
+    "ASPECT_LABELS",
+    "NUM_ASPECTS",
+    "LLM_NAME",
+    "VIT_NAME",
+    "LLM_HIDDEN",
+    "VIT_HIDDEN",
+    "MAX_IMAGES",
+    "IMAGE_SIZE",
+    "MAX_TEXT_LEN",
+    "MAX_PATCH_TOKENS_PER_IMAGE",
+    "MAX_ROI_TOKENS_PER_IMAGE",
+    "LORA_R",
+    "LORA_ALPHA",
+    "LORA_TARGET_MODULES",
+    "TEXT_RETRIEVER_HEADS",
+    "IMG_RETRIEVER_HEADS",
+    "ROI_RETRIEVER_HEADS",
+    "LR_LORA",
+    "LR_OTHER",
+    "WEIGHT_DECAY",
+    "WARMUP_RATIO",
+    "BATCH_SIZE",
+    "GRADIENT_ACCUMULATION",
+    "MAX_EPOCHS",
+    "EARLY_STOPPING_PATIENCE",
+    "DATA_DIR",
+    "OUTPUT_DIR",
+    # Modules
+    "SigLIPEncoder",
     "MLPProjector",
-    "PerceiverResampler",
-    "MultiScaleVisualFusion",
-    "DualGatedCrossAttentionAdapter",
-    "AspectGuidedVisualAttention",
-    "QwenLMWrapper",
-    "MultimodalSentimentModel",
-    "build_tokenizer_and_llm",
-    "build_tokenizer_only",
-    # Contrastive loss
-    "SupervisedAngularMarginLoss",
-    "CombinedSentimentLoss",
+    "RoIProjector",
+    "AspectQuery",
+    "TextRetriever",
+    "ImageRetriever",
+    "RoiRetriever",
+    "GatedFusion",
+    "MultimodalACSAModel",
+    "ClassificationHead",
     # Data
-    "SentimentDataset",
-    "make_collate_fn",
-    "load_all_splits",
-    "build_transform",
-    "build_train_transform",
-    "compute_class_weights",
-    "build_weighted_sampler",
-    # Training
-    "LazyLambdaScheduler",
-    "train_epoch",
-    "validate",
-    "setup_optimizer",
-    # Inference
-    "predict_aspect_sentiment",
+    "MultimodalSentimentDataset",
+    "collate_fn",
+    "build_dataloader",
 ]

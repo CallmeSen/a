@@ -1,183 +1,185 @@
-root@71d3261521137a80:~/a# USE_LORA=1 USE_MULTITASK=1 USE_WEIGHTED_SAMPLER=1 USE_VCE=1 USE_DUAL_ADAPTER=1 USE_CONTRASTIVE_LOSS=1 USE_ASPECT_ATTN=1 python multimodal_sentiment.py
-The image processor of type `ViTImageProcessor` is now loaded as a fast processor by default, even if the model checkpoint was saved with a slow processor. This is a breaking change and may produce slightly different outputs. To continue using the slow processor, instantiate this class with `use_fast=False`. 
-Device: cuda
-[INFO] Found existing checkpoint: output_model/best_model.safetensors
-      Will resume from checkpoint after training.
-Compute dtype: torch.bfloat16
-Vision model: microsoft/swinv2-base-patch4-window8-256
-LLM model:    Qwen/Qwen3-4B-Instruct-2507
-Data dir:     datasets
-Output dir:   output_model
-Loaded 2876 samples from datasets/train.json
-Loaded 1000 samples from datasets/dev.json
-Loaded 1000 samples from datasets/test.json
-[DATA] Class distribution: {'Negative': 830, 'Neutral': 1401, 'None': 8606, 'Positive': 6419}
-[DATA] Class weights: [0.2122, 2.2, 1.3034, 0.2845]
-
-Loading LLM: Qwen/Qwen3-4B-Instruct-2507
-[INFO] Special tokens registered: <ASP>=151669, </ASP>=151670
-Loading weights: 100%|████████████████████████████████████| 398/398 [00:00<00:00, 8584.28it/s]
-[INFO] Tokenizer vocab size: 151671, embedding resized
-[INFO] LLM base: Qwen3Model, num_layers=36, hidden_size=2560
-Tokenizer: padding_side=right, pad_token=<|endoftext|> (id=151643)
-
-[LoRA] Applying LoRA: r=64, alpha=128
-[LoRA] Applying LoRA: r=64, alpha=128, targets=['q_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']
-[LoRA] Backbone frozen — only LoRA params train
-[LoRA] Trainable params: 123,863,040 / 4,145,652,736 (2.99%)
-[LoRA Summary] Trainable: 123,863,040 / 4,145,652,736 (2.99%)
-trainable params: 123,863,040 || all params: 4,145,652,736 || trainable%: 2.9878
-Loading Swin Transformer V2: microsoft/swinv2-base-patch4-window8-256 (torch_dtype=torch.float32)
-Loading weights: 100%|███████████████████████████████████| 471/471 [00:00<00:00, 50856.41it/s]
-Vision encoder: 471 params trainable (all stages)
-Loaded: hidden_size=1024, num_patches=64
-[Dual Adapter] Using DualGatedCrossAttentionAdapter (rank=64)
-[VCE] MultiScaleVisualFusion enabled (64 tokens from 4 SwinV2 stages)
-[MultimodalSentimentModel] Qwen backbone frozen — trainable params managed by PEFT (LoRA) or adapters
-[Contrastive Loss] ArcFace head enabled
-[Aspect Attention] Aspect-Guided Visual Attention enabled
-
-[R8] Wrapping model with MultitaskSentimentModel
-[VCE] MultiScaleVisualFusion enabled (64 tokens from 4 SwinV2 stages)
-[MultimodalSentimentModel] Qwen backbone frozen — trainable params managed by PEFT (LoRA) or adapters
-[Contrastive Loss] ArcFace head enabled
-[Aspect Attention] Aspect-Guided Visual Attention enabled
-[Multitask] Trainable params (723): LoRA + adapters + vision + projector + classifier
-Total parameters: 4,338,498,871
-Trainable parameters: 192,846,135
-Prepared 17256 valid samples
-[DATA] WeightedRandomSampler: 17256 samples (1 per aspect), minority_upsample_ratio=5.0
-[DATA] Label distribution: {0: 8606, 1: 830, 2: 1401, 3: 6419}
-Prepared 6000 valid samples
-Prepared 6000 valid samples
-
-Training config:
-  LR: 5e-06
-  Epochs: 15, Steps/Epoch: 1079, Total: 16185, Warmup: 1618
-  Grad accumulation: 4
-  Trainable params: 192,846,135 params across 723 tensors
-
-[OK] Sanity forward: logits finite=True
-     logits shape=torch.Size([4, 1, 1, 4])
-     bad_batch=False
-
 Epoch 1/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [38:49<00:00,  1.85it/s, loss=0.0697, cls=0.0697]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [05:20<00:00,  4.68it/s]
-Train Loss: 0.1939 (CLS=0.1939)
-Val Loss:   0.0822 (CLS=0.0822)
-Val Macro-F1: 0.1730
-[SAVED] Best model macro-F1=0.1730
+Training: 100%|████████████████████████████████████| 360/360 [07:40<00:00,  1.28s/it, loss=1.0215]
+Train Loss: 1.0215
+Evaluating: 100%|███████████████████████████████████████████████| 125/125 [01:58<00:00,  1.06it/s]
+Dev Loss: 0.9281
+Dev F1 (macro): 0.3303  Precision: 0.3245  Recall: 0.3515  Accuracy: 0.6373
+Per-aspect metrics (F1 / Precision / Recall / Acc):
+  Facilities: F1=0.3214  P=0.3201  R=0.3446  Acc=0.6240
+  Public_area: F1=0.3390  P=0.3379  R=0.3513  Acc=0.6900
+  Location: F1=0.3272  P=0.3169  R=0.3532  Acc=0.6150
+  Food: F1=0.3346  P=0.3360  R=0.3541  Acc=0.6510
+  Room: F1=0.3214  P=0.3248  R=0.3382  Acc=0.6450
+  Service: F1=0.3239  P=0.3050  R=0.3532  Acc=0.5990
+*** New best F1: 0.3303 (P=0.3245, R=0.3515) ***
 
 Epoch 2/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [39:37<00:00,  1.81it/s, loss=0.0577, cls=0.0577]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [05:20<00:00,  4.67it/s]
-Train Loss: 0.0883 (CLS=0.0883)
-Val Loss:   0.0677 (CLS=0.0677)
-Val Macro-F1: 0.2828
-[SAVED] Best model macro-F1=0.2828
+Training: 100%|████████████████████████████████████| 360/360 [07:35<00:00,  1.27s/it, loss=0.8314]
+Train Loss: 0.8314
+Evaluating: 100%|███████████████████████████████████████████████| 125/125 [02:07<00:00,  1.02s/it]
+Dev Loss: 0.7845
+Dev F1 (macro): 0.5009  Precision: 0.5428  Recall: 0.4957  Accuracy: 0.6872
+Per-aspect metrics (F1 / Precision / Recall / Acc):
+  Facilities: F1=0.5058  P=0.5259  R=0.5083  Acc=0.6660
+  Public_area: F1=0.4825  P=0.5278  R=0.4885  Acc=0.7220
+  Location: F1=0.5189  P=0.5721  R=0.5080  Acc=0.6890
+  Food: F1=0.5042  P=0.5236  R=0.5121  Acc=0.6600
+  Room: F1=0.4819  P=0.5746  R=0.4729  Acc=0.7040
+  Service: F1=0.4863  P=0.5304  R=0.4808  Acc=0.6820
+*** New best F1: 0.5009 (P=0.5428, R=0.4957) ***
 
 Epoch 3/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [39:02<00:00,  1.84it/s, loss=0.1380, cls=0.1380]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [05:07<00:00,  4.88it/s]
-Train Loss: 0.0762 (CLS=0.0762)
-Val Loss:   0.0691 (CLS=0.0691)
-Val Macro-F1: 0.2870
-[SAVED] Best model macro-F1=0.2870
+Training: 100%|████████████████████████████████████| 360/360 [07:41<00:00,  1.28s/it, loss=0.6585]
+Train Loss: 0.6585
+Evaluating: 100%|███████████████████████████████████████████████| 125/125 [02:06<00:00,  1.02s/it]
+Dev Loss: 0.6381
+Dev F1 (macro): 0.5701  Precision: 0.6455  Recall: 0.5394  Accuracy: 0.7610
+Per-aspect metrics (F1 / Precision / Recall / Acc):
+  Facilities: F1=0.5444  P=0.6390  R=0.5128  Acc=0.7360
+  Public_area: F1=0.5344  P=0.5966  R=0.5096  Acc=0.7850
+  Location: F1=0.6035  P=0.6690  R=0.5736  Acc=0.7640
+  Food: F1=0.5491  P=0.6093  R=0.5221  Acc=0.7430
+  Room: F1=0.5849  P=0.6936  R=0.5454  Acc=0.7920
+  Service: F1=0.5784  P=0.6451  R=0.5531  Acc=0.7460
+*** New best F1: 0.5701 (P=0.6455, R=0.5394) ***
 
 Epoch 4/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [38:11<00:00,  1.88it/s, loss=0.1574, cls=0.1574]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [05:19<00:00,  4.70it/s]
-Train Loss: 0.0681 (CLS=0.0681)
-Val Loss:   0.0634 (CLS=0.0634)
-Val Macro-F1: 0.3457
-[SAVED] Best model macro-F1=0.3457
+Training: 100%|████████████████████████████████████| 360/360 [07:37<00:00,  1.27s/it, loss=0.5393]
+Train Loss: 0.5393
+Evaluating: 100%|███████████████████████████████████████████████| 125/125 [02:04<00:00,  1.01it/s]
+Dev Loss: 0.5700
+Dev F1 (macro): 0.5962  Precision: 0.6421  Recall: 0.5870  Accuracy: 0.7867
+Per-aspect metrics (F1 / Precision / Recall / Acc):
+  Facilities: F1=0.6051  P=0.6504  R=0.5913  Acc=0.7660
+  Public_area: F1=0.5620  P=0.6190  R=0.5444  Acc=0.8110
+  Location: F1=0.6063  P=0.6351  R=0.6059  Acc=0.7910
+  Food: F1=0.5693  P=0.5943  R=0.5721  Acc=0.7630
+  Room: F1=0.6113  P=0.6942  R=0.5869  Acc=0.8160
+  Service: F1=0.5900  P=0.6260  R=0.5938  Acc=0.7730
+*** New best F1: 0.5962 (P=0.6421, R=0.5870) ***
 
 Epoch 5/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [36:48<00:00,  1.95it/s, loss=0.0314, cls=0.0314]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [04:32<00:00,  5.50it/s]
-Train Loss: 0.0603 (CLS=0.0603)
-Val Loss:   0.0615 (CLS=0.0615)
-Val Macro-F1: 0.3687
-[SAVED] Best model macro-F1=0.3687
+Training: 100%|████████████████████████████████████| 360/360 [07:35<00:00,  1.26s/it, loss=0.4464]
+Train Loss: 0.4464
+Evaluating: 100%|███████████████████████████████████████████████| 125/125 [02:03<00:00,  1.01it/s]
+Dev Loss: 0.5593
+Dev F1 (macro): 0.6128  Precision: 0.6742  Recall: 0.5870  Accuracy: 0.7943
+Per-aspect metrics (F1 / Precision / Recall / Acc):
+  Facilities: F1=0.6092  P=0.6632  R=0.5828  Acc=0.7780
+  Public_area: F1=0.5907  P=0.6406  R=0.5680  Acc=0.8200
+  Location: F1=0.6305  P=0.7023  R=0.6028  Acc=0.7960
+  Food: F1=0.5977  P=0.6513  R=0.5771  Acc=0.7750
+  Room: F1=0.6069  P=0.6825  R=0.5778  Acc=0.8180
+  Service: F1=0.6220  P=0.6835  R=0.5996  Acc=0.7790
+*** New best F1: 0.6128 (P=0.6742, R=0.5870) ***
 
 Epoch 6/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [36:16<00:00,  1.98it/s, loss=0.0702, cls=0.0702]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [04:24<00:00,  5.66it/s]
-Train Loss: 0.0549 (CLS=0.0549)
-Val Loss:   0.0574 (CLS=0.0574)
-Val Macro-F1: 0.4194
-[SAVED] Best model macro-F1=0.4194
+Training: 100%|████████████████████████████████████| 360/360 [07:31<00:00,  1.25s/it, loss=0.3618]
+Train Loss: 0.3618
+Evaluating: 100%|███████████████████████████████████████████████| 125/125 [02:04<00:00,  1.01it/s]
+Dev Loss: 0.5869
+Dev F1 (macro): 0.6322  Precision: 0.6588  Recall: 0.6148  Accuracy: 0.7913
+Per-aspect metrics (F1 / Precision / Recall / Acc):
+  Facilities: F1=0.6441  P=0.6724  R=0.6269  Acc=0.7750
+  Public_area: F1=0.5948  P=0.6140  R=0.5908  Acc=0.8140
+  Location: F1=0.6450  P=0.6756  R=0.6246  Acc=0.7930
+  Food: F1=0.6423  P=0.6708  R=0.6228  Acc=0.7790
+  Room: F1=0.6201  P=0.6462  R=0.6052  Acc=0.8050
+  Service: F1=0.6327  P=0.6609  R=0.6148  Acc=0.7820
+*** New best F1: 0.6322 (P=0.6588, R=0.6148) ***
 
 Epoch 7/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [36:00<00:00,  2.00it/s, loss=0.0451, cls=0.0451]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [04:32<00:00,  5.50it/s]
-Train Loss: 0.0483 (CLS=0.0483)
-Val Loss:   0.0611 (CLS=0.0611)
-Val Macro-F1: 0.4051
+Training: 100%|████████████████████████████████████| 360/360 [07:32<00:00,  1.26s/it, loss=0.2793]
+Train Loss: 0.2793
+Evaluating: 100%|███████████████████████████████████████████████| 125/125 [02:04<00:00,  1.00it/s]
+Dev Loss: 0.6761
+Dev F1 (macro): 0.5840  Precision: 0.6991  Recall: 0.5534  Accuracy: 0.7945
+Per-aspect metrics (F1 / Precision / Recall / Acc):
+  Facilities: F1=0.6055  P=0.7093  R=0.5713  Acc=0.7820
+  Public_area: F1=0.5563  P=0.6672  R=0.5368  Acc=0.8220
+  Location: F1=0.6008  P=0.7610  R=0.5610  Acc=0.7980
+  Food: F1=0.5992  P=0.6877  R=0.5689  Acc=0.7860
+  Room: F1=0.5797  P=0.7076  R=0.5513  Acc=0.8160
+  Service: F1=0.5504  P=0.6528  R=0.5298  Acc=0.7630
+No improvement. Patience: 1/4
 
 Epoch 8/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [36:29<00:00,  1.97it/s, loss=0.0393, cls=0.0393]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [04:39<00:00,  5.37it/s]
-Train Loss: 0.0449 (CLS=0.0449)
-Val Loss:   0.0582 (CLS=0.0582)
-Val Macro-F1: 0.4524
-[SAVED] Best model macro-F1=0.4524
+Training: 100%|████████████████████████████████████| 360/360 [07:39<00:00,  1.28s/it, loss=0.2094]
+Train Loss: 0.2094
+Evaluating: 100%|███████████████████████████████████████████████| 125/125 [01:57<00:00,  1.06it/s]
+Dev Loss: 0.6417
+Dev F1 (macro): 0.6463  Precision: 0.6626  Recall: 0.6332  Accuracy: 0.7992
+Per-aspect metrics (F1 / Precision / Recall / Acc):
+  Facilities: F1=0.6787  P=0.6918  R=0.6701  Acc=0.7930
+  Public_area: F1=0.6253  P=0.6336  R=0.6193  Acc=0.8390
+  Location: F1=0.6731  P=0.6944  R=0.6572  Acc=0.8040
+  Food: F1=0.6069  P=0.6123  R=0.6034  Acc=0.7650
+  Room: F1=0.6462  P=0.6690  R=0.6293  Acc=0.8140
+  Service: F1=0.6367  P=0.6660  R=0.6203  Acc=0.7800
+*** New best F1: 0.6463 (P=0.6626, R=0.6332) ***
 
 Epoch 9/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [37:24<00:00,  1.92it/s, loss=0.0152, cls=0.0152]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [04:34<00:00,  5.47it/s]
-Train Loss: 0.0414 (CLS=0.0414)
-Val Loss:   0.0615 (CLS=0.0615)
-Val Macro-F1: 0.4243
+Training: 100%|████████████████████████████████████| 360/360 [07:37<00:00,  1.27s/it, loss=0.1453]
+Train Loss: 0.1453
+Evaluating: 100%|███████████████████████████████████████████████| 125/125 [02:01<00:00,  1.03it/s]
+Dev Loss: 0.7540
+Dev F1 (macro): 0.6265  Precision: 0.6606  Recall: 0.6061  Accuracy: 0.7997
+Per-aspect metrics (F1 / Precision / Recall / Acc):
+  Facilities: F1=0.6377  P=0.6840  R=0.6130  Acc=0.7850
+  Public_area: F1=0.5839  P=0.6019  R=0.5792  Acc=0.8200
+  Location: F1=0.6419  P=0.6740  R=0.6209  Acc=0.8010
+  Food: F1=0.6170  P=0.6591  R=0.5922  Acc=0.7890
+  Room: F1=0.6375  P=0.6764  R=0.6142  Acc=0.8220
+  Service: F1=0.6263  P=0.6648  R=0.6050  Acc=0.7810
+No improvement. Patience: 1/4
 
 Epoch 10/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [37:25<00:00,  1.92it/s, loss=0.0258, cls=0.0258]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [05:16<00:00,  4.73it/s]
-Train Loss: 0.0389 (CLS=0.0389)
-Val Loss:   0.0550 (CLS=0.0550)
-Val Macro-F1: 0.4914
-[SAVED] Best model macro-F1=0.4914
+Training: 100%|████████████████████████████████████| 360/360 [07:29<00:00,  1.25s/it, loss=0.0995]
+Train Loss: 0.0995
+Evaluating: 100%|███████████████████████████████████████████████| 125/125 [02:07<00:00,  1.02s/it]
+Dev Loss: 0.8099
+Dev F1 (macro): 0.6183  Precision: 0.6505  Recall: 0.5996  Accuracy: 0.7870
+Per-aspect metrics (F1 / Precision / Recall / Acc):
+  Facilities: F1=0.6485  P=0.6898  R=0.6239  Acc=0.7830
+  Public_area: F1=0.5869  P=0.6098  R=0.5766  Acc=0.8170
+  Location: F1=0.6286  P=0.6800  R=0.6028  Acc=0.7890
+  Food: F1=0.5929  P=0.6135  R=0.5822  Acc=0.7570
+  Room: F1=0.6374  P=0.6632  R=0.6202  Acc=0.8180
+  Service: F1=0.6044  P=0.6426  R=0.5866  Acc=0.7580
+No improvement. Patience: 2/4
 
 Epoch 11/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [39:11<00:00,  1.83it/s, loss=0.0091, cls=0.0091]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [04:23<00:00,  5.68it/s]
-Train Loss: 0.0370 (CLS=0.0370)
-Val Loss:   0.0544 (CLS=0.0544)
-Val Macro-F1: 0.4879
+Training: 100%|████████████████████████████████████| 360/360 [07:30<00:00,  1.25s/it, loss=0.0632]
+Train Loss: 0.0632
+Evaluating: 100%|███████████████████████████████████████████████| 125/125 [02:01<00:00,  1.02it/s]
+Dev Loss: 0.8537
+Dev F1 (macro): 0.6438  Precision: 0.6571  Recall: 0.6331  Accuracy: 0.7997
+Per-aspect metrics (F1 / Precision / Recall / Acc):
+  Facilities: F1=0.6669  P=0.6764  R=0.6627  Acc=0.7900
+  Public_area: F1=0.6250  P=0.6316  R=0.6223  Acc=0.8290
+  Location: F1=0.6441  P=0.6647  R=0.6288  Acc=0.7980
+  Food: F1=0.6184  P=0.6274  R=0.6122  Acc=0.7780
+  Room: F1=0.6601  P=0.6772  R=0.6465  Acc=0.8270
+  Service: F1=0.6360  P=0.6553  R=0.6222  Acc=0.7760
+No improvement. Patience: 3/4
 
 Epoch 12/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [36:22<00:00,  1.98it/s, loss=0.0170, cls=0.0170]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [04:32<00:00,  5.50it/s]
-Train Loss: 0.0351 (CLS=0.0351)
-Val Loss:   0.0545 (CLS=0.0545)
-Val Macro-F1: 0.4852
+Training: 100%|████████████████████████████████████| 360/360 [07:40<00:00,  1.28s/it, loss=0.0377]
+Train Loss: 0.0377
+Evaluating: 100%|███████████████████████████████████████████████| 125/125 [02:05<00:00,  1.00s/it]
+Dev Loss: 0.9455
+Dev F1 (macro): 0.6414  Precision: 0.6648  Recall: 0.6243  Accuracy: 0.7998
+Per-aspect metrics (F1 / Precision / Recall / Acc):
+  Facilities: F1=0.6585  P=0.6865  R=0.6400  Acc=0.7900
+  Public_area: F1=0.6284  P=0.6498  R=0.6129  Acc=0.8350
+  Location: F1=0.6498  P=0.6765  R=0.6311  Acc=0.7970
+  Food: F1=0.5978  P=0.6169  R=0.5854  Acc=0.7700
+  Room: F1=0.6500  P=0.6792  R=0.6293  Acc=0.8240
+  Service: F1=0.6447  P=0.6651  R=0.6300  Acc=0.7830
+No improvement. Patience: 4/4
+Early stopping at epoch 12
 
-Epoch 13/15
-Training:   0%|                                                      | 0/4314 [00:00<?, ?it/s][DIAG] tokenizer.padding_side=right, pad_token_id=151643
-Training: 100%|██████████████████| 4314/4314 [38:10<00:00,  1.88it/s, loss=0.0240, cls=0.0240]
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [04:17<00:00,  5.83it/s]
-Train Loss: 0.0344 (CLS=0.0344)
-Val Loss:   0.0564 (CLS=0.0564)
-Val Macro-F1: 0.4765
-[EARLY STOP] triggered
-Validating: 100%|█████████████████████████████████████████| 1500/1500 [04:23<00:00,  5.70it/s]
+Best overall F1: 0.6463
 
-=== Test Set ===
-Test Loss: 0.0618 (CLS=0.0618)
-Test Macro-F1: 0.4767
-Macro Precision: 0.5049
-Macro Recall:   0.6002
-Macro F1:       0.4767
+Training complete. Results saved to outputs/training_results.json
+Best F1 (macro): 0.6463
